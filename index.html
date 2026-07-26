@@ -130,6 +130,13 @@
   .login-card .sub{color:var(--muted); font-size:13.5px; margin:0 0 20px;}
   .login-error{color:var(--danger); font-size:13px; margin-bottom:10px; display:none; background:#fdeaea; padding:8px 10px; border-radius:8px;}
 </style>
+
+<style>
+  .modal-overlay{position:fixed; inset:0; background:rgba(20,20,25,0.5); display:flex; align-items:center; justify-content:center; padding:20px; z-index:200;}
+  .modal-box{background:var(--card); border-radius:18px; padding:22px 20px; max-width:340px; width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.3);}
+  .modal-message{font-size:15px; line-height:1.5; margin-bottom:20px; color:var(--text); white-space:pre-wrap;}
+  .modal-actions{display:flex; gap:10px; justify-content:flex-end;}
+  .modal-actions .btn{padding:10px 18px; margin:0;}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -146,6 +153,13 @@
     <label>Password</label>
     <input type="password" id="login_password" placeholder="Password" autocomplete="current-password">
     <button class="btn block" onclick="doLogin()">Accedi</button>
+  </div>
+</div>
+
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div id="modalMessage" class="modal-message"></div>
+    <div class="modal-actions" id="modalActions"></div>
   </div>
 </div>
 
@@ -230,7 +244,9 @@ async function sSet(key, value){
 let activeListeners = {};
 function watchKey(key){
   if(activeListeners[key]) return;
+  let primoScatto = true;
   activeListeners[key] = db.collection(COLLECTION).doc(key).onSnapshot(()=>{
+    if(primoScatto){ primoScatto = false; return; } // il primo scatto conferma solo i dati già caricati
     if(isTypingInForm()) return; // evita di cancellare un form che l'utente sta compilando
     render();
   }, err => console.error('listener error', key, err));
@@ -247,6 +263,55 @@ function isTypingInForm(){
 }
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+// ---------- Popup di conferma/avviso personalizzati (al posto di confirm/alert nativi) ----------
+function customConfirm(message){
+  return new Promise(resolve=>{
+    const overlay = document.getElementById('modalOverlay');
+    document.getElementById('modalMessage').textContent = message;
+    const actions = document.getElementById('modalActions');
+    actions.innerHTML = '';
+    const btnCancel = document.createElement('button');
+    btnCancel.className = 'btn secondary';
+    btnCancel.textContent = 'Annulla';
+    const btnOk = document.createElement('button');
+    btnOk.className = 'btn';
+    btnOk.textContent = 'OK';
+    actions.appendChild(btnCancel);
+    actions.appendChild(btnOk);
+    overlay.classList.remove('hidden');
+    function cleanup(result){
+      overlay.classList.add('hidden');
+      btnCancel.removeEventListener('click', onCancel);
+      btnOk.removeEventListener('click', onOk);
+      resolve(result);
+    }
+    function onCancel(){ cleanup(false); }
+    function onOk(){ cleanup(true); }
+    btnCancel.addEventListener('click', onCancel);
+    btnOk.addEventListener('click', onOk);
+  });
+}
+function customAlert(message){
+  return new Promise(resolve=>{
+    const overlay = document.getElementById('modalOverlay');
+    document.getElementById('modalMessage').textContent = message;
+    const actions = document.getElementById('modalActions');
+    actions.innerHTML = '';
+    const btnOk = document.createElement('button');
+    btnOk.className = 'btn block';
+    btnOk.textContent = 'OK';
+    actions.appendChild(btnOk);
+    overlay.classList.remove('hidden');
+    function cleanup(){
+      overlay.classList.add('hidden');
+      btnOk.removeEventListener('click', onOk);
+      resolve();
+    }
+    function onOk(){ cleanup(); }
+    btnOk.addEventListener('click', onOk);
+  });
+}
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function fmtDate(d){
   if(!d) return '';
@@ -573,7 +638,7 @@ async function toggleChecklistItem(id){
   renderChecklist(BASE_SECTIONS[3]);
 }
 async function delChecklistItem(id){
-  if(!confirm('Eliminare definitivamente questa voce dalla checklist?')) return;
+  if(!(await customConfirm('Eliminare definitivamente questa voce dalla checklist?'))) return;
   let items = await sGet('checklist_items', []);
   items = items.filter(i=>i.id!==id);
   await sSet('checklist_items', items);
@@ -594,7 +659,7 @@ async function addChecklistCategory(){
   if(!name) return;
   const cats = await ensureDefaultChecklistCategories();
   if(cats.some(c=>c.name.toLowerCase() === name.toLowerCase())){
-    alert('Esiste già una categoria con questo nome.');
+    await customAlert('Esiste già una categoria con questo nome.');
     return;
   }
   cats.push({id:uid(), name, priority: prioEl.value});
@@ -602,7 +667,7 @@ async function addChecklistCategory(){
   renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
 }
 async function delChecklistCategory(id){
-  if(!confirm('Eliminare questa categoria? Le voci checklist che la usano diventeranno "Generale".')) return;
+  if(!(await customConfirm('Eliminare questa categoria? Le voci checklist che la usano diventeranno "Generale".'))) return;
   let cats = await sGet('checklist_categories', []);
   cats = cats.filter(c=>c.id!==id);
   await sSet('checklist_categories', cats);
@@ -622,10 +687,23 @@ function colorePerCategoria(cat){
   return CUSTOM_COLORS[Math.abs(hash) % CUSTOM_COLORS.length];
 }
 
+let currentFrequenti = [];
+function calcolaFrequenti(storico, limit=10){
+  const map = {};
+  storico.forEach(s=>{
+    const key = (s.text||'').toLowerCase() + '|' + (s.category||'Altro');
+    if(!map[key]) map[key] = {text:s.text, category:s.category||'Altro', count:0};
+    map[key].count++;
+  });
+  return Object.values(map).sort((a,b)=>b.count-a.count).slice(0,limit);
+}
+
 async function renderListaSpesa(section){
   pageTitle.textContent = section.label;
   watchKey('lista_spesa_items');
   const items = await sGet('lista_spesa_items', []);
+  const storico = await sGet('lista_spesa_storico', []);
+  currentFrequenti = calcolaFrequenti(storico);
   const categorieEsistenti = [...new Set(items.map(i=>i.category))];
   const opzioni = [...new Set([...CATEGORIE_SUGGERITE, ...categorieEsistenti])];
 
@@ -641,6 +719,15 @@ async function renderListaSpesa(section){
       <input type="text" id="ls_cat_custom" placeholder="Nome della nuova categoria" class="hidden" style="margin-top:-2px;">
       <button class="btn block" onclick="addListaSpesa()">Aggiungi</button>
     </div>`;
+
+  if(currentFrequenti.length > 0){
+    html += `<div class="card">
+      <div class="title">🔁 Acquistati spesso</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+        ${currentFrequenti.map((f,idx)=>`<button class="btn secondary small" onclick="quickAddFromStorico(${idx})">+ ${escapeHtml(f.text)}</button>`).join('')}
+      </div>
+    </div>`;
+  }
 
   if(items.length===0){
     html += `<div class="empty">Lista vuota. Aggiungi il primo articolo!</div>`;
@@ -662,7 +749,7 @@ async function renderListaSpesa(section){
         html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleListaSpesa('${it.id}')">
           <span class="check-circle">${it.done?'✓':''}</span>
           <span class="label">${escapeHtml(it.text)}</span>
-          <button class="del" onclick="event.stopPropagation(); delListaSpesa('${it.id}')">✕</button>
+          <button class="del" onclick="event.stopPropagation(); delListaSpesa('${it.id}')">🗑️</button>
         </div>`;
       });
     });
@@ -680,14 +767,31 @@ async function renderListaSpesa(section){
     document.body.appendChild(bar);
   }
 }
-async function chiudiSpesa(){
+async function quickAddFromStorico(idx){
+  const f = currentFrequenti[idx];
+  if(!f) return;
   const items = await sGet('lista_spesa_items', []);
-  const presi = items.filter(i=>i.done).length;
-  if(presi===0){
-    alert('Non ci sono ancora articoli spuntati come acquistati.');
+  const giaPresente = items.some(i => !i.done && i.text.toLowerCase()===f.text.toLowerCase() && (i.category||'Altro')===(f.category||'Altro'));
+  if(giaPresente){
+    await customAlert(`"${f.text}" è già nella lista.`);
     return;
   }
-  if(!confirm(`Eliminare ${presi} articoli già acquistati dalla lista? Resteranno solo quelli ancora da comprare.`)) return;
+  items.push({id:uid(), text:f.text, category:f.category||'Altro', done:false});
+  await sSet('lista_spesa_items', items);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+async function chiudiSpesa(){
+  const items = await sGet('lista_spesa_items', []);
+  const acquistati = items.filter(i=>i.done);
+  if(acquistati.length===0){
+    await customAlert('Non ci sono ancora articoli spuntati come acquistati.');
+    return;
+  }
+  if(!(await customConfirm(`Salvare ${acquistati.length} articoli nello storico acquisti e rimuoverli dalla lista? Resteranno solo quelli ancora da comprare.`))) return;
+  const storico = await sGet('lista_spesa_storico', []);
+  const oggi = todayStr();
+  acquistati.forEach(it => storico.push({id:uid(), text:it.text, category:it.category||'Altro', data:oggi}));
+  await sSet('lista_spesa_storico', storico.slice(-300));
   const restanti = items.filter(i=>!i.done);
   await sSet('lista_spesa_items', restanti);
   renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
@@ -723,6 +827,7 @@ async function toggleListaSpesa(id){
   renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
 }
 async function delListaSpesa(id){
+  if(!(await customConfirm('Eliminare questo articolo dalla lista?'))) return;
   let items = await sGet('lista_spesa_items', []);
   items = items.filter(i=>i.id!==id);
   await sSet('lista_spesa_items', items);
@@ -787,14 +892,14 @@ async function delCustomItem(sectionId, itemId){
   renderCustom(state.customSections.find(s=>s.id===sectionId));
 }
 async function deleteSection(sectionId){
-  if(!confirm('Eliminare questa sezione e tutte le sue voci?')) return;
+  if(!(await customConfirm('Eliminare questa sezione e tutte le sue voci?'))) return;
   state.customSections = state.customSections.filter(s=>s.id!==sectionId);
   await sSet('custom_sections', state.customSections);
   navigate('home');
 }
 
 // ---------- IMPOSTAZIONI ----------
-const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','custom_sections','user_name'];
+const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections','user_name'];
 
 const APP_VERSION = 'v1.5';
 const CHANGELOG = [
@@ -876,7 +981,7 @@ async function renderSettings(section){
 async function saveUserName(){
   const name = document.getElementById('s_name').value.trim();
   await sSet('user_name', name);
-  alert('Nome salvato: ' + (name || '(vuoto)'));
+  await customAlert('Nome salvato: ' + (name || '(vuoto)'));
 }
 
 async function exportData(){
@@ -905,8 +1010,8 @@ async function exportData(){
 async function importData(){
   const fileInput = document.getElementById('s_file');
   const file = fileInput.files[0];
-  if(!file){ alert('Seleziona prima un file di backup.'); return; }
-  if(!confirm('Questo sovrascriverà tutti i dati attuali. Continuare?')) return;
+  if(!file){ await customAlert('Seleziona prima un file di backup.'); return; }
+  if(!(await customConfirm('Questo sovrascriverà tutti i dati attuali. Continuare?'))) return;
 
   try{
     const text = await file.text();
@@ -920,10 +1025,10 @@ async function importData(){
       }
     }
     state.customSections = await sGet('custom_sections', []);
-    alert('Dati importati con successo.');
+    await customAlert('Dati importati con successo.');
     navigate('home');
   }catch(e){
-    alert('File non valido o corrotto. Import annullato.');
+    await customAlert('File non valido o corrotto. Import annullato.');
   }
 }
 
