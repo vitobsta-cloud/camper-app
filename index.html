@@ -474,6 +474,8 @@ async function renderManutTodo(section){
       <input type="text" id="m_task" placeholder="Es. Cambio olio, controllo gas...">
       <label>Note (opzionale)</label>
       <textarea id="m_note" placeholder="Dettagli, scadenza, km..."></textarea>
+      <label>Data prevista (opzionale)</label>
+      <input type="date" id="m_date">
       <button class="btn block" onclick="addManutTodo()">Aggiungi</button>
     </div>`;
   if(todo.length===0){
@@ -481,6 +483,7 @@ async function renderManutTodo(section){
   } else {
     todo.forEach(t=>{
       html += `<div class="card">
+        ${t.data ? `<div class="meta">📅 ${fmtDate(t.data)}</div>` : ''}
         <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
         <div class="row">
@@ -495,9 +498,10 @@ async function renderManutTodo(section){
 async function addManutTodo(){
   const task = document.getElementById('m_task').value.trim();
   const note = document.getElementById('m_note').value.trim();
+  const data = document.getElementById('m_date').value || null;
   if(!task) return;
   const todo = await sGet('manut_todo', []);
-  todo.push({id:uid(), task, note});
+  todo.push({id:uid(), task, note, data});
   await sSet('manut_todo', todo);
   renderManutTodo(BASE_SECTIONS[1]);
 }
@@ -523,13 +527,24 @@ async function renderManutDone(section){
   pageTitle.textContent = section.label;
   watchKey('manut_done');
   const done = await sGet('manut_done', []);
-  let html = '';
+  let html = `
+    <div class="card">
+      <label>Intervento già effettuato</label>
+      <input type="text" id="md_task" placeholder="Es. Cambio olio, controllo gas...">
+      <label>Note (opzionale)</label>
+      <textarea id="md_note" placeholder="Dettagli, km, officina..."></textarea>
+      <label>Data</label>
+      <input type="date" id="md_date" value="${todayStr()}">
+      <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Utile per registrare interventi vecchi fatti prima di usare l'app.</div>
+      <button class="btn block" onclick="addManutDone()">Aggiungi</button>
+    </div>`;
   if(done.length===0){
     html += `<div class="empty">Nessuna manutenzione registrata ancora.</div>`;
   } else {
     done.slice().reverse().forEach(t=>{
       html += `<div class="card">
-        <div class="meta">${fmtDate(t.date)}</div>
+        <label style="margin-bottom:4px;">Data</label>
+        <input type="date" value="${t.date||''}" onchange="updateManutDoneDate('${t.id}', this.value)" style="margin-bottom:10px;">
         <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
         <div class="row"><button class="btn danger" onclick="delManutDone('${t.id}')">Elimina</button></div>
@@ -537,6 +552,23 @@ async function renderManutDone(section){
     });
   }
   main.innerHTML = html;
+}
+async function addManutDone(){
+  const task = document.getElementById('md_task').value.trim();
+  const note = document.getElementById('md_note').value.trim();
+  const date = document.getElementById('md_date').value || todayStr();
+  if(!task) return;
+  const done = await sGet('manut_done', []);
+  done.push({id:uid(), task, note, date});
+  await sSet('manut_done', done);
+  renderManutDone(BASE_SECTIONS[2]);
+}
+async function updateManutDoneDate(id, value){
+  const done = await sGet('manut_done', []);
+  const it = done.find(t=>t.id===id);
+  if(it) it.date = value;
+  await sSet('manut_done', done);
+  renderManutDone(BASE_SECTIONS[2]);
 }
 async function delManutDone(id){
   let done = await sGet('manut_done', []);
