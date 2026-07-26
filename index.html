@@ -110,6 +110,10 @@
   .cat-header:first-child{margin-top:4px;}
   .cat-count{font-weight:600; font-size:12px; opacity:0.75;}
 
+  .cat-edit-row{display:flex; align-items:center; gap:8px; padding:9px 0; border-top:1px solid var(--border);}
+  .cat-edit-row input[type=text]{flex:1; margin-bottom:0; padding:9px 10px; font-size:13.5px;}
+  .cat-edit-row select{width:auto; margin-bottom:0; padding:9px 8px; font-size:12.5px; flex-shrink:0;}
+
   /* ── Sequenza di avvio: effetto "puzzle" sulle card della home ── */
   .frag-holder{position:relative;}
   .frag{position:absolute; opacity:0; overflow:hidden; will-change:transform,opacity;}
@@ -138,6 +142,22 @@
   .modal-actions{display:flex; gap:10px; justify-content:flex-end;}
   .modal-actions .btn{padding:10px 18px; margin:0;}
 </style>
+
+<style>
+  .result-overlay{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:300; background:rgba(20,20,25,0.4); padding:20px;}
+  .result-content{background:var(--card); border-radius:22px; padding:34px 26px; text-align:center; box-shadow:0 16px 50px rgba(0,0,0,0.35); max-width:320px; width:100%; position:relative; z-index:2;}
+  .result-icon{font-size:54px; margin-bottom:14px; line-height:1;}
+  .result-message{font-size:15.5px; font-weight:700; color:var(--text); line-height:1.5; white-space:pre-wrap;}
+  .result-overlay.warning .result-content{border:2px solid #f7c98a;}
+  .result-particles{position:absolute; inset:0; pointer-events:none; overflow:visible;}
+  .result-particle{position:absolute; left:50%; top:50%; font-size:24px; opacity:0; will-change:transform,opacity;}
+  @keyframes particleBurst{
+    0%{opacity:1; transform:translate(-50%,-50%) scale(.5) rotate(0deg);}
+    100%{opacity:0; transform:translate(calc(-50% + var(--px)), calc(-50% + var(--py))) scale(1) rotate(var(--pr));}
+  }
+  .result-particle.play{animation:particleBurst 900ms ease-out forwards;}
+  @media (prefers-reduced-motion: reduce){.result-particle{display:none;}}
+</style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -161,6 +181,14 @@
   <div class="modal-box">
     <div id="modalMessage" class="modal-message"></div>
     <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<div id="checklistResultOverlay" class="result-overlay hidden">
+  <div class="result-particles" id="resultParticles"></div>
+  <div class="result-content">
+    <div class="result-icon" id="resultIcon"></div>
+    <div class="result-message" id="resultMessage"></div>
   </div>
 </div>
 
@@ -314,6 +342,43 @@ function customAlert(message){
   });
 }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// ---------- Animazione "esplosione" per il risultato della verifica checklist ----------
+function showChecklistResult(success, message){
+  const overlay = document.getElementById('checklistResultOverlay');
+  const icon = document.getElementById('resultIcon');
+  const msg = document.getElementById('resultMessage');
+  const particlesWrap = document.getElementById('resultParticles');
+  particlesWrap.innerHTML = '';
+  icon.textContent = success ? '🎉' : '⚠️';
+  msg.textContent = message;
+  overlay.classList.toggle('warning', !success);
+  overlay.classList.remove('hidden');
+
+  const emojiSet = success ? ['🎉','✅','🚐','⭐','🎊'] : ['⚠️','❗'];
+  const count = success ? 18 : 10;
+  for(let i=0; i<count; i++){
+    const p = document.createElement('span');
+    p.className = 'result-particle';
+    p.textContent = emojiSet[Math.floor(Math.random()*emojiSet.length)];
+    const angle = Math.random()*Math.PI*2;
+    const dist = 90 + Math.random()*110;
+    p.style.setProperty('--px', (Math.cos(angle)*dist)+'px');
+    p.style.setProperty('--py', (Math.sin(angle)*dist)+'px');
+    p.style.setProperty('--pr', ((Math.random()-0.5)*180)+'deg');
+    p.style.animationDelay = (Math.random()*120)+'ms';
+    particlesWrap.appendChild(p);
+  }
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      particlesWrap.querySelectorAll('.result-particle').forEach(p=>p.classList.add('play'));
+    });
+  });
+
+  overlay.onclick = () => overlay.classList.add('hidden');
+  clearTimeout(showChecklistResult._t);
+  showChecklistResult._t = setTimeout(()=> overlay.classList.add('hidden'), 3200);
+}
 function fmtDate(d){
   if(!d) return '';
   const dt = new Date(d+'T00:00:00');
@@ -346,8 +411,7 @@ async function init(){
 
 function navigate(route){
   unwatchAll();
-  const oldBar = document.getElementById('lsFixedBar');
-  if(oldBar) oldBar.remove();
+  document.querySelectorAll('.fixed-action').forEach(el => el.remove());
   state.route = route;
   backBtn.classList.toggle('show', route!=='home');
   render();
@@ -651,8 +715,32 @@ async function renderChecklist(section){
         </div>`;
       });
     });
+    html += `<div class="list-spacer"></div>`;
   }
   main.innerHTML = html;
+
+  document.querySelectorAll('.fixed-action').forEach(el => el.remove());
+  if(items.length>0){
+    const bar = document.createElement('div');
+    bar.className = 'fixed-action';
+    bar.innerHTML = `<div class="inner"><button class="btn block" onclick="verificaChecklist()">✅ Verifica checklist</button></div>`;
+    document.body.appendChild(bar);
+  }
+}
+async function verificaChecklist(){
+  const items = await sGet('checklist_items', []);
+  if(items.length===0){
+    await customAlert('Non hai ancora aggiunto nessuna voce alla checklist.');
+    return;
+  }
+  const mancanti = items.filter(i=>!i.done);
+  if(mancanti.length===0){
+    showChecklistResult(true, 'Checklist completata!\nTutto pronto per partire 🚐');
+  } else {
+    const elenco = mancanti.slice(0,5).map(i=>'• '+i.text).join('\n');
+    const extra = mancanti.length>5 ? `\n… e altre ${mancanti.length-5}` : '';
+    showChecklistResult(false, `Mancano ancora ${mancanti.length} vo${mancanti.length===1?'ce':'ci'}:\n${elenco}${extra}`);
+  }
 }
 async function addChecklistItem(){
   const text = document.getElementById('c_text').value.trim();
@@ -697,6 +785,35 @@ async function addChecklistCategory(){
   }
   cats.push({id:uid(), name, priority: prioEl.value});
   await sSet('checklist_categories', cats);
+  renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
+}
+async function saveChecklistCategory(id){
+  const nameInput = document.getElementById('cc_name_'+id);
+  const prioSelect = document.getElementById('cc_prio_'+id);
+  const newName = nameInput.value.trim();
+  const newPriority = prioSelect.value;
+  if(!newName){
+    await customAlert('Il nome della categoria non può essere vuoto.');
+    return;
+  }
+  const cats = await sGet('checklist_categories', []);
+  const cat = cats.find(c=>c.id===id);
+  if(!cat) return;
+  if(cats.some(c=>c.id!==id && c.name.toLowerCase()===newName.toLowerCase())){
+    await customAlert('Esiste già un\'altra categoria con questo nome.');
+    return;
+  }
+  const oldName = cat.name;
+  cat.name = newName;
+  cat.priority = newPriority;
+  await sSet('checklist_categories', cats);
+
+  if(oldName !== newName){
+    const items = await sGet('checklist_items', []);
+    let changed = false;
+    items.forEach(it=>{ if(it.category === oldName){ it.category = newName; changed = true; } });
+    if(changed) await sSet('checklist_items', items);
+  }
   renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
 }
 async function delChecklistCategory(id){
@@ -934,8 +1051,10 @@ async function deleteSection(sectionId){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections','user_name'];
 
-const APP_VERSION = 'v1.6';
+const APP_VERSION = 'v1.8';
 const CHANGELOG = [
+  {v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
+  {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
   {v:'v1.5', note:'Sequenza di avvio animata in home, e questa cronologia versioni.'},
   {v:'v1.4', note:'Aggiunta la Lista della spesa, organizzata per categorie colorate.'},
@@ -958,12 +1077,15 @@ async function renderSettings(section){
 
     <div class="card">
       <div class="title">Categorie checklist</div>
-      <div class="body" style="margin-bottom:10px;">Definisci le categorie della checklist e la loro importanza. Quelle ad Alta priorità compaiono sempre in cima.</div>
+      <div class="body" style="margin-bottom:10px;">Definisci le categorie della checklist e la loro importanza. Quelle ad Alta priorità compaiono sempre in cima. Modifica nome/importanza e premi 💾 per salvare.</div>
       ${categorieChecklist.map(c=>{
-        const stile = prioritaStile(c.priority);
-        return `<div style="display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--border);">
-          <span style="flex:1; font-size:14px;">${stile.icon} ${escapeHtml(c.name)}</span>
-          <span style="font-size:11.5px; color:var(--muted); background:${stile.bg}; padding:3px 9px; border-radius:20px; font-weight:700;">${c.priority === 'alta' ? 'Alta priorità' : 'Normale'}</span>
+        return `<div class="cat-edit-row">
+          <input type="text" id="cc_name_${c.id}" value="${escapeHtml(c.name)}">
+          <select id="cc_prio_${c.id}">
+            <option value="alta" ${c.priority==='alta'?'selected':''}>🔴 Alta</option>
+            <option value="normale" ${c.priority!=='alta'?'selected':''}>🔵 Normale</option>
+          </select>
+          <button class="btn ok small" onclick="saveChecklistCategory('${c.id}')">💾</button>
           <button class="del" onclick="delChecklistCategory('${c.id}')">🗑️</button>
         </div>`;
       }).join('')}
