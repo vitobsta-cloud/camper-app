@@ -90,18 +90,40 @@
   .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
   .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
   .hidden{display:none !important;}
+
+  .login-screen{position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; z-index:100;}
+  .login-card{background:var(--card); border-radius:20px; box-shadow:var(--shadow); padding:30px 24px; max-width:360px; width:100%;}
+  .login-card h2{margin:0 0 6px; font-size:21px;}
+  .login-card .sub{color:var(--muted); font-size:13.5px; margin:0 0 20px;}
+  .login-error{color:var(--danger); font-size:13px; margin-bottom:10px; display:none; background:#fdeaea; padding:8px 10px; border-radius:8px;}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <h2>🚐 Il Mio Camper</h2>
+    <div class="sub">Accedi per continuare</div>
+    <div id="loginError" class="login-error"></div>
+    <label>Email</label>
+    <input type="text" id="login_email" placeholder="Email" autocomplete="username">
+    <label>Password</label>
+    <input type="password" id="login_password" placeholder="Password" autocomplete="current-password">
+    <button class="btn block" onclick="doLogin()">Accedi</button>
+  </div>
+</div>
+
+<div id="appRoot" class="hidden">
 <header>
   <button class="back" id="backBtn">←</button>
   <h1 id="pageTitle">🚐 Il Mio Camper</h1>
 </header>
 
 <main id="main"></main>
+</div>
 
 <script>
 // ---------- Firebase setup ----------
@@ -114,8 +136,41 @@ const firebaseConfig = {
   appId: "1:476280929219:web:eda2af5900348b9333db76"
 };
 firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
 const db = firebase.firestore();
 const COLLECTION = 'camperApp';
+
+// ---------- Autenticazione ----------
+auth.onAuthStateChanged(user => {
+  const loginScreen = document.getElementById('loginScreen');
+  const appRoot = document.getElementById('appRoot');
+  if(user){
+    loginScreen.classList.add('hidden');
+    appRoot.classList.remove('hidden');
+    init();
+  } else {
+    loginScreen.classList.remove('hidden');
+    appRoot.classList.add('hidden');
+  }
+});
+
+async function doLogin(){
+  const email = document.getElementById('login_email').value.trim();
+  const password = document.getElementById('login_password').value;
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  if(!email || !password){
+    errEl.textContent = 'Inserisci email e password.';
+    errEl.style.display = 'block';
+    return;
+  }
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(e){
+    errEl.textContent = 'Accesso non riuscito. Controlla email e password.';
+    errEl.style.display = 'block';
+  }
+}
 
 // ---------- Storage helpers (Firestore-backed, shared tra i dispositivi) ----------
 async function sGet(key, fallback){
@@ -579,8 +634,6 @@ function escapeHtml(str){
   d.textContent = str||'';
   return d.innerHTML;
 }
-
-init();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
