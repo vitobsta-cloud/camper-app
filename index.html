@@ -22,14 +22,14 @@
   header{
     padding:16px; background:var(--bg);
     position:sticky; top:0; z-index:10;
-    display:flex; align-items:center; gap:8px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
   }
   header .back{
-    background:var(--card); border:1px solid var(--border); color:var(--text); font-size:18px; cursor:pointer;
-    padding:6px 12px; display:none; border-radius:10px; box-shadow:var(--shadow);
+    background:var(--card); border:1px solid var(--border); color:var(--text); font-size:13.5px; font-weight:700; cursor:pointer;
+    padding:8px 12px; display:none; border-radius:10px; box-shadow:var(--shadow); flex-shrink:0; white-space:nowrap;
   }
   header .back.show{display:inline-block;}
-  header h1{font-size:20px; margin:0; font-weight:700; flex:1;}
+  header h1{font-size:19px; margin:0; font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   main{padding:0 16px 40px; max-width:640px; margin:0 auto;}
 
   .list{display:flex; flex-direction:column; gap:12px;}
@@ -110,9 +110,11 @@
   .cat-header:first-child{margin-top:4px;}
   .cat-count{font-weight:600; font-size:12px; opacity:0.75;}
 
-  .cat-edit-row{display:flex; align-items:center; gap:8px; padding:9px 0; border-top:1px solid var(--border);}
-  .cat-edit-row input[type=text]{flex:1; margin-bottom:0; padding:9px 10px; font-size:13.5px;}
-  .cat-edit-row select{width:auto; margin-bottom:0; padding:9px 8px; font-size:12.5px; flex-shrink:0;}
+  .cat-edit-block{padding:12px 0; border-top:1px solid var(--border);}
+  .cat-edit-block input[type=text]{margin-bottom:8px; font-size:15px;}
+  .cat-edit-row2{display:flex; gap:8px; align-items:center;}
+  .cat-edit-row2 select{flex:1; margin-bottom:0;}
+  .cat-edit-row2 .del{flex-shrink:0; font-size:20px;}
 
   /* ── Sequenza di avvio: effetto "puzzle" sulle card della home ── */
   .frag-holder{position:relative;}
@@ -158,6 +160,17 @@
   .result-particle.play{animation:particleBurst 900ms ease-out forwards;}
   @media (prefers-reduced-motion: reduce){.result-particle{display:none;}}
 </style>
+
+<style>
+  .activity-toast{
+    position:fixed; top:16px; left:16px; right:16px; max-width:600px; margin:0 auto;
+    background:var(--card); border-left:4px solid var(--accent); border-radius:14px;
+    padding:14px 16px; box-shadow:0 10px 30px rgba(0,0,0,0.18); z-index:150;
+    font-size:13.5px; font-weight:600; color:var(--text); white-space:pre-wrap; line-height:1.5;
+    animation:toastIn 260ms ease-out; cursor:pointer;
+  }
+  @keyframes toastIn{ from{opacity:0; transform:translateY(-14px);} to{opacity:1; transform:translateY(0);} }
+</style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -192,9 +205,13 @@
   </div>
 </div>
 
+<div id="activityToast" class="activity-toast hidden">
+  <div class="activity-toast-text" id="activityToastText"></div>
+
 <div id="appRoot" class="hidden">
 <header>
-  <button class="back" id="backBtn">←</button>
+  <button class="back" id="backBtn">← Indietro</button>
+  <button class="back" id="homeBtn">🏠 Home</button>
   <h1 id="pageTitle">🚐 Il Mio Camper</h1>
 </header>
 
@@ -386,6 +403,63 @@ function fmtDate(d){
   return dt.toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'});
 }
 
+// ---------- Identità del dispositivo (locale, NON condivisa) ----------
+// Il nome resta su questo telefono/browser: ognuno imposta il proprio dal suo dispositivo,
+// così l'app sa distinguere "chi ha fatto cosa" pur usando lo stesso account condiviso.
+function getDeviceName(){
+  try{ return localStorage.getItem('camper_device_name') || ''; }catch(e){ return ''; }
+}
+function setDeviceName(name){
+  try{ localStorage.setItem('camper_device_name', name); }catch(e){}
+}
+function getLastSeenActivity(){
+  try{ return parseInt(localStorage.getItem('camper_last_seen_activity') || '0', 10); }catch(e){ return 0; }
+}
+function setLastSeenActivity(ts){
+  try{ localStorage.setItem('camper_last_seen_activity', String(ts)); }catch(e){}
+}
+
+// ---------- Registro attività condiviso (per la notifica "chi ha aggiunto cosa") ----------
+async function logActivity(sezione, testo){
+  const user = getDeviceName();
+  if(!user) return; // se non hai impostato un nome su questo dispositivo, non attribuiamo l'azione
+  try{
+    const log = await sGet('activity_log', []);
+    log.push({id:uid(), user, sezione, testo, ts: Date.now()});
+    await sSet('activity_log', log.slice(-150));
+  }catch(e){ console.error('logActivity failed', e); }
+}
+async function checkNewActivity(){
+  const myName = getDeviceName();
+  const lastSeen = getLastSeenActivity();
+  const log = await sGet('activity_log', []);
+  if(log.length === 0) return;
+  const nuovi = log.filter(a => a.ts > lastSeen && a.user && a.user !== myName);
+  if(nuovi.length > 0){
+    const perUser = {};
+    nuovi.forEach(a=>{
+      if(!perUser[a.user]) perUser[a.user] = [];
+      perUser[a.user].push(a.testo);
+    });
+    const messaggio = Object.entries(perUser).map(([user, testi])=>{
+      const elenco = testi.slice(0,5).join(', ') + (testi.length>5 ? ` e altre ${testi.length-5}` : '');
+      return `${user} ha aggiunto: ${elenco}`;
+    }).join('\n');
+    showActivityToast(messaggio);
+  }
+  const maxTs = log.reduce((m,a)=>Math.max(m,a.ts), lastSeen);
+  setLastSeenActivity(maxTs);
+}
+function showActivityToast(message){
+  const el = document.getElementById('activityToast');
+  const textEl = document.getElementById('activityToastText');
+  if(!el || !textEl) return;
+  textEl.textContent = '🔔 ' + message;
+  el.classList.remove('hidden');
+  clearTimeout(showActivityToast._t);
+  showActivityToast._t = setTimeout(()=> el.classList.add('hidden'), 7000);
+  el.onclick = () => el.classList.add('hidden');
+}
 const BASE_SECTIONS = [
   {id:'diario', icon:'📔', color:'#e8ddfb', label:'Diario di viaggio', sub:'Tappe, luoghi e ricordi', type:'diario'},
   {id:'manut_da_fare', icon:'🔧', color:'#fde3cf', label:'Manutenzione da effettuare', sub:'Interventi da programmare', type:'manut_todo'},
@@ -402,11 +476,14 @@ let homeAnimatedOnce = false;
 const main = document.getElementById('main');
 const pageTitle = document.getElementById('pageTitle');
 const backBtn = document.getElementById('backBtn');
+const homeBtn = document.getElementById('homeBtn');
 backBtn.addEventListener('click', ()=> navigate('home'));
+homeBtn.addEventListener('click', ()=> navigate('home'));
 
 async function init(){
   state.customSections = await sGet('custom_sections', []);
   navigate('home');
+  checkNewActivity();
 }
 
 function navigate(route){
@@ -414,6 +491,7 @@ function navigate(route){
   document.querySelectorAll('.fixed-action').forEach(el => el.remove());
   state.route = route;
   backBtn.classList.toggle('show', route!=='home');
+  homeBtn.classList.toggle('show', route!=='home');
   render();
 }
 
@@ -519,6 +597,7 @@ async function addDiario(){
   const entries = await sGet('diario_entries', []);
   entries.push({id:uid(), date, title, text});
   await sSet('diario_entries', entries);
+  logActivity('Diario di viaggio', title || text.slice(0,40));
   renderDiario(BASE_SECTIONS[0]);
 }
 async function delDiario(id){
@@ -567,6 +646,7 @@ async function addManutTodo(){
   const todo = await sGet('manut_todo', []);
   todo.push({id:uid(), task, note, data});
   await sSet('manut_todo', todo);
+  logActivity('Manutenzione da effettuare', task);
   renderManutTodo(BASE_SECTIONS[1]);
 }
 async function delManutTodo(id){
@@ -625,6 +705,7 @@ async function addManutDone(){
   const done = await sGet('manut_done', []);
   done.push({id:uid(), task, note, date});
   await sSet('manut_done', done);
+  logActivity('Manutenzione effettuata', task);
   renderManutDone(BASE_SECTIONS[2]);
 }
 async function updateManutDoneDate(id, value){
@@ -667,6 +748,7 @@ async function renderChecklist(section){
   const categorie = await ensureDefaultChecklistCategories();
   const catByName = {};
   categorie.forEach(c => catByName[c.name] = c);
+  const ultimaCategoria = await sGet('checklist_last_category', null);
 
   let html = `<div class="fab-row">
       <button class="btn secondary small" onclick="resetChecklist()">🔄 Nuovo viaggio (resetta spunte)</button>
@@ -676,7 +758,7 @@ async function renderChecklist(section){
       <input type="text" id="c_text" placeholder="Es. Controllare gas, riempire acqua...">
       <label>Categoria</label>
       <select id="c_cat">
-        ${categorie.map(c=>`<option value="${escapeHtml(c.name)}">${prioritaStile(c.priority).icon} ${escapeHtml(c.name)}</option>`).join('')}
+        ${categorie.map(c=>`<option value="${escapeHtml(c.name)}" ${c.name===ultimaCategoria?'selected':''}>${prioritaStile(c.priority).icon} ${escapeHtml(c.name)}</option>`).join('')}
       </select>
       <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Le categorie si aggiungono da Impostazioni.</div>
       <button class="btn block" onclick="addChecklistItem()">Aggiungi voce</button>
@@ -749,6 +831,8 @@ async function addChecklistItem(){
   const items = await sGet('checklist_items', []);
   items.push({id:uid(), text, category, done:false});
   await sSet('checklist_items', items);
+  await sSet('checklist_last_category', category);
+  logActivity('Checklist', text);
   renderChecklist(BASE_SECTIONS[3]);
 }
 async function toggleChecklistItem(id){
@@ -787,33 +871,50 @@ async function addChecklistCategory(){
   await sSet('checklist_categories', cats);
   renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
 }
-async function saveChecklistCategory(id){
-  const nameInput = document.getElementById('cc_name_'+id);
-  const prioSelect = document.getElementById('cc_prio_'+id);
-  const newName = nameInput.value.trim();
-  const newPriority = prioSelect.value;
-  if(!newName){
-    await customAlert('Il nome della categoria non può essere vuoto.');
+async function saveAllChecklistCategories(){
+  const nameInputs = document.querySelectorAll('.cat-edit-name');
+  if(nameInputs.length === 0) return;
+
+  const valori = Array.from(nameInputs).map(inp => ({
+    id: inp.dataset.id,
+    oldName: inp.dataset.old,
+    newName: inp.value.trim(),
+    priority: document.querySelector(`.cat-edit-prio[data-id="${inp.dataset.id}"]`).value
+  }));
+
+  if(valori.some(v => !v.newName)){
+    await customAlert('Il nome delle categorie non può essere vuoto.');
     return;
   }
+  const nomiMinuscoli = valori.map(v => v.newName.toLowerCase());
+  const haDuplicati = nomiMinuscoli.some((n, i) => nomiMinuscoli.indexOf(n) !== i);
+  if(haDuplicati){
+    await customAlert('Due categorie non possono avere lo stesso nome.');
+    return;
+  }
+
   const cats = await sGet('checklist_categories', []);
-  const cat = cats.find(c=>c.id===id);
-  if(!cat) return;
-  if(cats.some(c=>c.id!==id && c.name.toLowerCase()===newName.toLowerCase())){
-    await customAlert('Esiste già un\'altra categoria con questo nome.');
-    return;
-  }
-  const oldName = cat.name;
-  cat.name = newName;
-  cat.priority = newPriority;
+  const renameMap = {};
+  valori.forEach(v => {
+    const cat = cats.find(c => c.id === v.id);
+    if(cat){
+      if(v.oldName !== v.newName) renameMap[v.oldName] = v.newName;
+      cat.name = v.newName;
+      cat.priority = v.priority;
+    }
+  });
   await sSet('checklist_categories', cats);
 
-  if(oldName !== newName){
+  if(Object.keys(renameMap).length > 0){
     const items = await sGet('checklist_items', []);
     let changed = false;
-    items.forEach(it=>{ if(it.category === oldName){ it.category = newName; changed = true; } });
+    items.forEach(it => {
+      if(renameMap[it.category]){ it.category = renameMap[it.category]; changed = true; }
+    });
     if(changed) await sSet('checklist_items', items);
   }
+
+  await customAlert('Modifiche salvate.');
   renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
 }
 async function delChecklistCategory(id){
@@ -967,6 +1068,7 @@ async function addListaSpesa(){
   const items = await sGet('lista_spesa_items', []);
   items.push({id:uid(), text, category, done:false});
   await sSet('lista_spesa_items', items);
+  logActivity('Lista della spesa', text);
   renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
 }
 async function toggleListaSpesa(id){
@@ -1024,7 +1126,9 @@ async function addCustomItem(sectionId){
   const items = await sGet(key, []);
   items.push({id:uid(), text, done:false});
   await sSet(key, items);
-  renderCustom(state.customSections.find(s=>s.id===sectionId));
+  const sezione = state.customSections.find(s=>s.id===sectionId);
+  logActivity(sezione ? sezione.label : 'Sezione personalizzata', text);
+  renderCustom(sezione);
 }
 async function toggleCustomItem(sectionId, itemId){
   const key = 'custom_data_' + sectionId;
@@ -1049,11 +1153,12 @@ async function deleteSection(sectionId){
 }
 
 // ---------- IMPOSTAZIONI ----------
-const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections','user_name'];
+const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v1.8';
+const APP_VERSION = 'v2.0';
 const CHANGELOG = [
-  {v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
+  {v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
   {v:'v1.5', note:'Sequenza di avvio animata in home, e questa cronologia versioni.'},
@@ -1066,30 +1171,33 @@ const CHANGELOG = [
 
 async function renderSettings(section){
   pageTitle.textContent = section.label;
-  const userName = await sGet('user_name', '');
+  const userName = getDeviceName();
   const categorieChecklist = await ensureDefaultChecklistCategories();
   let html = `
     <div class="card">
-      <label>Il tuo nome</label>
-      <input type="text" id="s_name" placeholder="Es. Marco o Giulia" value="${escapeHtml(userName)}">
+      <label>Il tuo nome (su questo dispositivo)</label>
+      <input type="text" id="s_name" placeholder="Es. Vito o Giulia" value="${escapeHtml(userName)}">
+      <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Resta solo su questo telefono: imposta un nome diverso su ciascun dispositivo, così l'app sa dire "chi ha aggiunto cosa".</div>
       <button class="btn block" onclick="saveUserName()">Salva nome</button>
     </div>
 
     <div class="card">
       <div class="title">Categorie checklist</div>
-      <div class="body" style="margin-bottom:10px;">Definisci le categorie della checklist e la loro importanza. Quelle ad Alta priorità compaiono sempre in cima. Modifica nome/importanza e premi 💾 per salvare.</div>
+      <div class="body" style="margin-bottom:6px;">Definisci le categorie della checklist e la loro importanza. Quelle ad Alta priorità compaiono sempre in cima. Modifica quello che vuoi, poi premi una volta sola "Salva modifiche" in fondo.</div>
       ${categorieChecklist.map(c=>{
-        return `<div class="cat-edit-row">
-          <input type="text" id="cc_name_${c.id}" value="${escapeHtml(c.name)}">
-          <select id="cc_prio_${c.id}">
-            <option value="alta" ${c.priority==='alta'?'selected':''}>🔴 Alta</option>
-            <option value="normale" ${c.priority!=='alta'?'selected':''}>🔵 Normale</option>
-          </select>
-          <button class="btn ok small" onclick="saveChecklistCategory('${c.id}')">💾</button>
-          <button class="del" onclick="delChecklistCategory('${c.id}')">🗑️</button>
+        return `<div class="cat-edit-block">
+          <input type="text" class="cat-edit-name" data-id="${c.id}" data-old="${escapeHtml(c.name)}" value="${escapeHtml(c.name)}">
+          <div class="cat-edit-row2">
+            <select class="cat-edit-prio" data-id="${c.id}">
+              <option value="alta" ${c.priority==='alta'?'selected':''}>🔴 Alta priorità</option>
+              <option value="normale" ${c.priority!=='alta'?'selected':''}>🔵 Normale</option>
+            </select>
+            <button class="del" onclick="delChecklistCategory('${c.id}')">🗑️</button>
+          </div>
         </div>`;
       }).join('')}
-      <div style="margin-top:14px;">
+      <button class="btn block" style="margin-top:14px;" onclick="saveAllChecklistCategories()">💾 Salva modifiche categorie</button>
+      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
         <label>Nuova categoria</label>
         <input type="text" id="cc_name" placeholder="Es. Documenti scooter, Sicurezza...">
         <label>Importanza</label>
@@ -1136,14 +1244,14 @@ async function renderSettings(section){
 
 async function saveUserName(){
   const name = document.getElementById('s_name').value.trim();
-  await sSet('user_name', name);
-  await customAlert('Nome salvato: ' + (name || '(vuoto)'));
+  setDeviceName(name);
+  await customAlert('Nome salvato su questo dispositivo: ' + (name || '(vuoto)'));
 }
 
 async function exportData(){
   const data = {};
   for(const key of DATA_KEYS){
-    data[key] = await sGet(key, key==='user_name' ? '' : []);
+    data[key] = await sGet(key, []);
   }
   const customSections = data.custom_sections || [];
   data.custom_data = {};
