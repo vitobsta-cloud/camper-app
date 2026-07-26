@@ -167,7 +167,7 @@ async function doLogin(){
   try{
     await auth.signInWithEmailAndPassword(email, password);
   }catch(e){
-    errEl.textContent = 'Accesso non riuscito. Controlla email e password.';
+    errEl.textContent = 'Errore: ' + (e.code || e.message);
     errEl.style.display = 'block';
   }
 }
