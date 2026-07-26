@@ -93,7 +93,7 @@
   .checkitem.done .check-circle{background:var(--ok); border-color:var(--ok);}
   .checkitem .label{flex:1; font-size:14.5px;}
   .checkitem.done .label{text-decoration:line-through; color:var(--muted);}
-  .checkitem .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px; flex-shrink:0;}
+  .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px; flex-shrink:0;}
 
   .fixed-action{position:fixed; left:0; right:0; bottom:0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:50;}
   .fixed-action .inner{max-width:640px; margin:0 auto;}
@@ -479,36 +479,89 @@ async function delManutDone(id){
   renderManutDone(BASE_SECTIONS[2]);
 }
 
+// Categorie di default create al primo utilizzo, se non ne esiste ancora nessuna
+async function ensureDefaultChecklistCategories(){
+  let cats = await sGet('checklist_categories', null);
+  if(cats === null || cats.length === 0){
+    cats = [
+      {id:uid(), name:'Documenti essenziali', priority:'alta'},
+      {id:uid(), name:'Generale', priority:'normale'}
+    ];
+    await sSet('checklist_categories', cats);
+  }
+  return cats;
+}
+function prioritaStile(priority){
+  return priority === 'alta'
+    ? {bg:'#fde0e0', icon:'🔴'}
+    : {bg:'#dbeafe', icon:'🔵'};
+}
+
 async function renderChecklist(section){
   pageTitle.textContent = section.label;
   watchKey('checklist_items');
+  watchKey('checklist_categories');
   const items = await sGet('checklist_items', []);
+  const categorie = await ensureDefaultChecklistCategories();
+  const catByName = {};
+  categorie.forEach(c => catByName[c.name] = c);
+
   let html = `<div class="fab-row">
       <button class="btn secondary small" onclick="resetChecklist()">🔄 Nuovo viaggio (resetta spunte)</button>
     </div>
     <div class="card">
       <label>Nuova voce checklist</label>
       <input type="text" id="c_text" placeholder="Es. Controllare gas, riempire acqua...">
+      <label>Categoria</label>
+      <select id="c_cat">
+        ${categorie.map(c=>`<option value="${escapeHtml(c.name)}">${prioritaStile(c.priority).icon} ${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+      <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Le categorie si aggiungono da Impostazioni.</div>
       <button class="btn block" onclick="addChecklistItem()">Aggiungi voce</button>
     </div>`;
+
   if(items.length===0){
     html += `<div class="empty">Nessuna voce. Crea la tua checklist di partenza.</div>`;
   } else {
+    const gruppi = {};
     items.forEach(it=>{
-      html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleChecklistItem('${it.id}')">
-        <span class="check-circle">${it.done?'✓':''}</span>
-        <span class="label">${escapeHtml(it.text)}</span>
-        <button class="del" onclick="event.stopPropagation(); delChecklistItem('${it.id}')">✕</button>
+      const cat = it.category || 'Generale';
+      if(!gruppi[cat]) gruppi[cat] = [];
+      gruppi[cat].push(it);
+    });
+    const ordinePriorita = { alta:0, normale:1 };
+    const nomiCategorie = Object.keys(gruppi).sort((a,b)=>{
+      const pa = (catByName[a]?.priority) || 'normale';
+      const pb = (catByName[b]?.priority) || 'normale';
+      if(ordinePriorita[pa] !== ordinePriorita[pb]) return ordinePriorita[pa]-ordinePriorita[pb];
+      return a.localeCompare(b);
+    });
+    nomiCategorie.forEach(cat=>{
+      const list = gruppi[cat];
+      const priority = (catByName[cat]?.priority) || 'normale';
+      const stile = prioritaStile(priority);
+      const fatti = list.filter(i=>i.done).length;
+      html += `<div class="cat-header" style="background:${stile.bg}">
+        <span>${stile.icon} ${escapeHtml(cat)}</span>
+        <span class="cat-count">${fatti}/${list.length}</span>
       </div>`;
+      list.forEach(it=>{
+        html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleChecklistItem('${it.id}')">
+          <span class="check-circle">${it.done?'✓':''}</span>
+          <span class="label">${escapeHtml(it.text)}</span>
+          <button class="del" onclick="event.stopPropagation(); delChecklistItem('${it.id}')">🗑️</button>
+        </div>`;
+      });
     });
   }
   main.innerHTML = html;
 }
 async function addChecklistItem(){
   const text = document.getElementById('c_text').value.trim();
+  const category = document.getElementById('c_cat').value;
   if(!text) return;
   const items = await sGet('checklist_items', []);
-  items.push({id:uid(), text, done:false});
+  items.push({id:uid(), text, category, done:false});
   await sSet('checklist_items', items);
   renderChecklist(BASE_SECTIONS[3]);
 }
@@ -520,6 +573,7 @@ async function toggleChecklistItem(id){
   renderChecklist(BASE_SECTIONS[3]);
 }
 async function delChecklistItem(id){
+  if(!confirm('Eliminare definitivamente questa voce dalla checklist?')) return;
   let items = await sGet('checklist_items', []);
   items = items.filter(i=>i.id!==id);
   await sSet('checklist_items', items);
@@ -530,6 +584,29 @@ async function resetChecklist(){
   items.forEach(i=>i.done=false);
   await sSet('checklist_items', items);
   renderChecklist(BASE_SECTIONS[3]);
+}
+
+// ---------- Gestione categorie checklist (usata anche in Impostazioni) ----------
+async function addChecklistCategory(){
+  const nameEl = document.getElementById('cc_name');
+  const prioEl = document.getElementById('cc_priority');
+  const name = nameEl.value.trim();
+  if(!name) return;
+  const cats = await ensureDefaultChecklistCategories();
+  if(cats.some(c=>c.name.toLowerCase() === name.toLowerCase())){
+    alert('Esiste già una categoria con questo nome.');
+    return;
+  }
+  cats.push({id:uid(), name, priority: prioEl.value});
+  await sSet('checklist_categories', cats);
+  renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
+}
+async function delChecklistCategory(id){
+  if(!confirm('Eliminare questa categoria? Le voci checklist che la usano diventeranno "Generale".')) return;
+  let cats = await sGet('checklist_categories', []);
+  cats = cats.filter(c=>c.id!==id);
+  await sSet('checklist_categories', cats);
+  renderSettings(BASE_SECTIONS.find(s=>s.type==='settings'));
 }
 
 // ---------- LISTA DELLA SPESA ----------
@@ -717,7 +794,7 @@ async function deleteSection(sectionId){
 }
 
 // ---------- IMPOSTAZIONI ----------
-const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','lista_spesa_items','custom_sections','user_name'];
+const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','custom_sections','user_name'];
 
 const APP_VERSION = 'v1.5';
 const CHANGELOG = [
@@ -732,6 +809,7 @@ const CHANGELOG = [
 async function renderSettings(section){
   pageTitle.textContent = section.label;
   const userName = await sGet('user_name', '');
+  const categorieChecklist = await ensureDefaultChecklistCategories();
   let html = `
     <div class="card">
       <label>Il tuo nome</label>
@@ -740,8 +818,31 @@ async function renderSettings(section){
     </div>
 
     <div class="card">
+      <div class="title">Categorie checklist</div>
+      <div class="body" style="margin-bottom:10px;">Definisci le categorie della checklist e la loro importanza. Quelle ad Alta priorità compaiono sempre in cima.</div>
+      ${categorieChecklist.map(c=>{
+        const stile = prioritaStile(c.priority);
+        return `<div style="display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--border);">
+          <span style="flex:1; font-size:14px;">${stile.icon} ${escapeHtml(c.name)}</span>
+          <span style="font-size:11.5px; color:var(--muted); background:${stile.bg}; padding:3px 9px; border-radius:20px; font-weight:700;">${c.priority === 'alta' ? 'Alta priorità' : 'Normale'}</span>
+          <button class="del" onclick="delChecklistCategory('${c.id}')">🗑️</button>
+        </div>`;
+      }).join('')}
+      <div style="margin-top:14px;">
+        <label>Nuova categoria</label>
+        <input type="text" id="cc_name" placeholder="Es. Documenti scooter, Sicurezza...">
+        <label>Importanza</label>
+        <select id="cc_priority">
+          <option value="alta">🔴 Alta priorità (indispensabile)</option>
+          <option value="normale" selected>🔵 Normale</option>
+        </select>
+        <button class="btn block" onclick="addChecklistCategory()">Aggiungi categoria</button>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="title">Salvataggio dati</div>
-      <div class="body">Esporta tutti i dati dell'app (diario, manutenzioni, checklist, sezioni personalizzate) in un file, per farne un backup o trasferirli su un altro telefono.</div>
+      <div class="body">Esporta tutti i dati dell'app (diario, manutenzioni, checklist, lista spesa, sezioni personalizzate) in un file, per farne un backup o trasferirli su un altro telefono.</div>
       <div class="row">
         <button class="btn block" onclick="exportData()">⬇️ Esporta backup</button>
       </div>
