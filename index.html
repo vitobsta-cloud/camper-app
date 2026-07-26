@@ -634,7 +634,19 @@ async function renderManutTodo(section){
       <label>Intervento da fare</label>
       <input type="text" id="m_task" placeholder="Es. Cambio olio, controllo gas...">
       <label>Note (opzionale)</label>
-      <textarea id="m_note" placeholder="Dettagli, scadenza, km..."></textarea>
+      <textarea id="m_note" placeholder="Dettagli, scadenza..."></textarea>
+      <div class="row" style="gap:10px;">
+        <div style="flex:1;">
+          <label>Km (opzionale)</label>
+          <input type="number" id="m_km" placeholder="Es. 78000">
+        </div>
+        <div style="flex:1;">
+          <label>Costo previsto € (opzionale)</label>
+          <input type="number" step="0.01" id="m_euro" placeholder="Es. 120">
+        </div>
+      </div>
+      <label>Fornitore (opzionale)</label>
+      <input type="text" id="m_fornitore" placeholder="Es. Officina Rossi">
       <label>Data prevista (opzionale)</label>
       <input type="date" id="m_date">
       <button class="btn block" onclick="addManutTodo()">Aggiungi</button>
@@ -643,10 +655,16 @@ async function renderManutTodo(section){
     html += `<div class="empty">Nessuna manutenzione in sospeso 🎉</div>`;
   } else {
     todo.forEach(t=>{
+      const dettagli = [
+        t.km ? `📏 ${t.km} km` : '',
+        t.euro ? `💶 €${t.euro}` : '',
+        t.fornitore ? `🔧 ${escapeHtml(t.fornitore)}` : ''
+      ].filter(Boolean).join(' · ');
       html += `<div class="card">
         ${t.data ? `<div class="meta">📅 ${fmtDate(t.data)}</div>` : ''}
         <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
+        ${dettagli ? `<div class="body">${dettagli}</div>` : ''}
         <div class="row">
           <button class="btn ok small" onclick="completeManut('${t.id}')">✅ Fatto</button>
           <button class="btn danger" onclick="delManutTodo('${t.id}')">Elimina</button>
@@ -660,9 +678,14 @@ async function addManutTodo(){
   const task = document.getElementById('m_task').value.trim();
   const note = document.getElementById('m_note').value.trim();
   const data = document.getElementById('m_date').value || null;
+  const kmVal = document.getElementById('m_km').value;
+  const euroVal = document.getElementById('m_euro').value;
+  const fornitore = document.getElementById('m_fornitore').value.trim();
+  const km = kmVal ? parseInt(kmVal, 10) : null;
+  const euro = euroVal ? parseFloat(euroVal) : null;
   if(!task) return;
   const todo = await sGet('manut_todo', []);
-  todo.push({id:uid(), task, note, data});
+  todo.push({id:uid(), task, note, data, km, euro, fornitore});
   await sSet('manut_todo', todo);
   logActivity('Manutenzione da effettuare', task);
   renderManutTodo(BASE_SECTIONS[1]);
@@ -680,7 +703,10 @@ async function completeManut(id){
   todo = todo.filter(t=>t.id!==id);
   await sSet('manut_todo', todo);
   const done = await sGet('manut_done', []);
-  done.push({id:uid(), task:item.task, note:item.note, date:todayStr()});
+  done.push({
+    id:uid(), task:item.task, note:item.note, date:todayStr(),
+    km:item.km||null, euro:item.euro||null, fornitore:item.fornitore||''
+  });
   await sSet('manut_done', done);
   renderManutTodo(BASE_SECTIONS[1]);
 }
@@ -694,7 +720,19 @@ async function renderManutDone(section){
       <label>Intervento già effettuato</label>
       <input type="text" id="md_task" placeholder="Es. Cambio olio, controllo gas...">
       <label>Note (opzionale)</label>
-      <textarea id="md_note" placeholder="Dettagli, km, officina..."></textarea>
+      <textarea id="md_note" placeholder="Dettagli..."></textarea>
+      <div class="row" style="gap:10px;">
+        <div style="flex:1;">
+          <label>Km (opzionale)</label>
+          <input type="number" id="md_km" placeholder="Es. 78000">
+        </div>
+        <div style="flex:1;">
+          <label>Costo € (opzionale)</label>
+          <input type="number" step="0.01" id="md_euro" placeholder="Es. 120">
+        </div>
+      </div>
+      <label>Fornitore (opzionale)</label>
+      <input type="text" id="md_fornitore" placeholder="Es. Officina Rossi">
       <label>Data</label>
       <input type="date" id="md_date" value="${todayStr()}">
       <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Utile per registrare interventi vecchi fatti prima di usare l'app.</div>
@@ -706,10 +744,22 @@ async function renderManutDone(section){
     done.slice().reverse().forEach(t=>{
       html += `<div class="card">
         <label style="margin-bottom:4px;">Data</label>
-        <input type="date" value="${t.date||''}" onchange="updateManutDoneDate('${t.id}', this.value)" style="margin-bottom:10px;">
+        <input type="date" value="${t.date||''}" onchange="updateManutDoneField('${t.id}','date',this.value)" style="margin-bottom:10px;">
         <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
-        <div class="row"><button class="btn danger" onclick="delManutDone('${t.id}')">Elimina</button></div>
+        <div class="row" style="gap:10px; margin-top:10px;">
+          <div style="flex:1;">
+            <label style="margin-bottom:4px;">Km</label>
+            <input type="number" value="${t.km ?? ''}" placeholder="Km" onchange="updateManutDoneField('${t.id}','km', this.value?parseInt(this.value,10):null)">
+          </div>
+          <div style="flex:1;">
+            <label style="margin-bottom:4px;">Costo €</label>
+            <input type="number" step="0.01" value="${t.euro ?? ''}" placeholder="€" onchange="updateManutDoneField('${t.id}','euro', this.value?parseFloat(this.value):null)">
+          </div>
+        </div>
+        <label style="margin-bottom:4px; margin-top:8px; display:block;">Fornitore</label>
+        <input type="text" value="${escapeHtml(t.fornitore||'')}" placeholder="Es. Officina Rossi" onchange="updateManutDoneField('${t.id}','fornitore', this.value)">
+        <div class="row" style="margin-top:10px;"><button class="btn danger" onclick="delManutDone('${t.id}')">Elimina</button></div>
       </div>`;
     });
   }
@@ -719,17 +769,22 @@ async function addManutDone(){
   const task = document.getElementById('md_task').value.trim();
   const note = document.getElementById('md_note').value.trim();
   const date = document.getElementById('md_date').value || todayStr();
+  const kmVal = document.getElementById('md_km').value;
+  const euroVal = document.getElementById('md_euro').value;
+  const fornitore = document.getElementById('md_fornitore').value.trim();
+  const km = kmVal ? parseInt(kmVal, 10) : null;
+  const euro = euroVal ? parseFloat(euroVal) : null;
   if(!task) return;
   const done = await sGet('manut_done', []);
-  done.push({id:uid(), task, note, date});
+  done.push({id:uid(), task, note, date, km, euro, fornitore});
   await sSet('manut_done', done);
   logActivity('Manutenzione effettuata', task);
   renderManutDone(BASE_SECTIONS[2]);
 }
-async function updateManutDoneDate(id, value){
+async function updateManutDoneField(id, field, value){
   const done = await sGet('manut_done', []);
   const it = done.find(t=>t.id===id);
-  if(it) it.date = value;
+  if(it) it[field] = value;
   await sSet('manut_done', done);
   renderManutDone(BASE_SECTIONS[2]);
 }
@@ -1284,10 +1339,10 @@ async function deleteSection(sectionId){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v2.2';
+const APP_VERSION = 'v2.3';
 const CHANGELOG = [
-  {v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},
-  {v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},
+  {v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
   {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
