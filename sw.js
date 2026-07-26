@@ -18,15 +18,21 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first per index.html cosi' le modifiche future sono sempre aggiornate,
-  // cache come fallback offline.
+  const req = event.request;
+  // Intercetta solo richieste GET dello stesso dominio (pagina, JS, CSS, icone).
+  // Tutto il resto (chiamate POST di Firebase, richieste di estensioni del browser,
+  // domini esterni) viene lasciato passare intatto: intercettarle causava errori
+  // e poteva interferire con la connessione in tempo reale di Firebase.
+  if(req.method !== 'GET' || new URL(req.url).origin !== self.location.origin){
+    return;
+  }
   event.respondWith(
-    fetch(event.request)
+    fetch(req)
       .then(res => {
         const resClone = res.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
+        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone)).catch(()=>{});
         return res;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(req).then(cached => cached || Response.error()))
   );
 });
