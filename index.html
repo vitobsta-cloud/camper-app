@@ -79,13 +79,25 @@
 
   .empty{color:var(--muted); text-align:center; padding:36px 10px; font-size:14px;}
   .checkitem{
-    display:flex; align-items:center; gap:10px; padding:13px 12px;
+    display:flex; align-items:center; gap:12px; padding:14px;
     background:var(--card); box-shadow:var(--shadow); border-radius:14px; margin-bottom:8px;
+    cursor:pointer; transition:background .15s, transform .08s; user-select:none;
   }
-  .checkitem input[type=checkbox]{width:21px; height:21px; flex-shrink:0; accent-color:var(--accent);}
-  .checkitem span{flex:1; font-size:14.5px;}
-  .checkitem.done span{text-decoration:line-through; color:var(--muted);}
-  .checkitem .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px;}
+  .checkitem:active{transform:scale(.98);}
+  .checkitem.done{background:#eaf7ee;}
+  .check-circle{
+    width:27px; height:27px; border-radius:50%; border:2px solid #cfd3d8; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:800; color:#fff;
+    transition:background .15s, border-color .15s;
+  }
+  .checkitem.done .check-circle{background:var(--ok); border-color:var(--ok);}
+  .checkitem .label{flex:1; font-size:14.5px;}
+  .checkitem.done .label{text-decoration:line-through; color:var(--muted);}
+  .checkitem .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px; flex-shrink:0;}
+
+  .fixed-action{position:fixed; left:0; right:0; bottom:0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:50;}
+  .fixed-action .inner{max-width:640px; margin:0 auto;}
+  .list-spacer{height:76px;}
 
   .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
   .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
@@ -268,6 +280,8 @@ async function init(){
 
 function navigate(route){
   unwatchAll();
+  const oldBar = document.getElementById('lsFixedBar');
+  if(oldBar) oldBar.remove();
   state.route = route;
   backBtn.classList.toggle('show', route!=='home');
   render();
@@ -481,10 +495,10 @@ async function renderChecklist(section){
     html += `<div class="empty">Nessuna voce. Crea la tua checklist di partenza.</div>`;
   } else {
     items.forEach(it=>{
-      html += `<div class="checkitem ${it.done?'done':''}">
-        <input type="checkbox" ${it.done?'checked':''} onchange="toggleChecklistItem('${it.id}')">
-        <span>${escapeHtml(it.text)}</span>
-        <button class="del" onclick="delChecklistItem('${it.id}')">✕</button>
+      html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleChecklistItem('${it.id}')">
+        <span class="check-circle">${it.done?'✓':''}</span>
+        <span class="label">${escapeHtml(it.text)}</span>
+        <button class="del" onclick="event.stopPropagation(); delChecklistItem('${it.id}')">✕</button>
       </div>`;
     });
   }
@@ -549,9 +563,6 @@ async function renderListaSpesa(section){
       </select>
       <input type="text" id="ls_cat_custom" placeholder="Nome della nuova categoria" class="hidden" style="margin-top:-2px;">
       <button class="btn block" onclick="addListaSpesa()">Aggiungi</button>
-    </div>
-    <div class="fab-row">
-      <button class="btn secondary small" onclick="clearListaSpesaFatti()">🧹 Rimuovi articoli presi</button>
     </div>`;
 
   if(items.length===0){
@@ -571,15 +582,38 @@ async function renderListaSpesa(section){
         <span class="cat-count">${presi}/${list.length}</span>
       </div>`;
       list.forEach(it=>{
-        html += `<div class="checkitem ${it.done?'done':''}">
-          <input type="checkbox" ${it.done?'checked':''} onchange="toggleListaSpesa('${it.id}')">
-          <span>${escapeHtml(it.text)}</span>
-          <button class="del" onclick="delListaSpesa('${it.id}')">✕</button>
+        html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleListaSpesa('${it.id}')">
+          <span class="check-circle">${it.done?'✓':''}</span>
+          <span class="label">${escapeHtml(it.text)}</span>
+          <button class="del" onclick="event.stopPropagation(); delListaSpesa('${it.id}')">✕</button>
         </div>`;
       });
     });
+    html += `<div class="list-spacer"></div>`;
   }
   main.innerHTML = html;
+
+  const oldBar = document.getElementById('lsFixedBar');
+  if(oldBar) oldBar.remove();
+  if(items.length>0){
+    const bar = document.createElement('div');
+    bar.id = 'lsFixedBar';
+    bar.className = 'fixed-action';
+    bar.innerHTML = `<div class="inner"><button class="btn block" onclick="chiudiSpesa()">✅ Chiudi spesa</button></div>`;
+    document.body.appendChild(bar);
+  }
+}
+async function chiudiSpesa(){
+  const items = await sGet('lista_spesa_items', []);
+  const presi = items.filter(i=>i.done).length;
+  if(presi===0){
+    alert('Non ci sono ancora articoli spuntati come acquistati.');
+    return;
+  }
+  if(!confirm(`Eliminare ${presi} articoli già acquistati dalla lista? Resteranno solo quelli ancora da comprare.`)) return;
+  const restanti = items.filter(i=>!i.done);
+  await sSet('lista_spesa_items', restanti);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
 }
 function onCategoriaLSChange(){
   const sel = document.getElementById('ls_cat_select');
@@ -639,10 +673,10 @@ async function renderCustom(section){
     html += `<div class="empty">Nessuna voce ancora.</div>`;
   } else {
     items.slice().reverse().forEach(it=>{
-      html += `<div class="checkitem ${it.done?'done':''}">
-        <input type="checkbox" ${it.done?'checked':''} onchange="toggleCustomItem('${section.id}','${it.id}')">
-        <span>${escapeHtml(it.text)}</span>
-        <button class="del" onclick="delCustomItem('${section.id}','${it.id}')">✕</button>
+      html += `<div class="checkitem ${it.done?'done':''}" onclick="toggleCustomItem('${section.id}','${it.id}')">
+        <span class="check-circle">${it.done?'✓':''}</span>
+        <span class="label">${escapeHtml(it.text)}</span>
+        <button class="del" onclick="event.stopPropagation(); delCustomItem('${section.id}','${it.id}')">✕</button>
       </div>`;
     });
   }
