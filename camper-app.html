@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Il Mio Camper</title>
+<style>
+  :root{
+    --bg:#eef1f4; --card:#ffffff; --text:#1c1c1e; --muted:#8a8f98;
+    --border:#e6e8eb; --accent:#e8834a; --ok:#34a366; --danger:#e5484d;
+    --shadow: 0 1px 2px rgba(20,20,30,0.06), 0 1px 1px rgba(20,20,30,0.04);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+  }
+  header{
+    padding:16px; background:var(--bg);
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; gap:8px;
+  }
+  header .back{
+    background:var(--card); border:1px solid var(--border); color:var(--text); font-size:18px; cursor:pointer;
+    padding:6px 12px; display:none; border-radius:10px; box-shadow:var(--shadow);
+  }
+  header .back.show{display:inline-block;}
+  header h1{font-size:20px; margin:0; font-weight:700; flex:1;}
+  main{padding:0 16px 40px; max-width:640px; margin:0 auto;}
+
+  .list{display:flex; flex-direction:column; gap:12px;}
+  .item{
+    background:var(--card); border-radius:18px; box-shadow:var(--shadow);
+    padding:16px; display:flex; align-items:center; gap:14px; cursor:pointer;
+    border:1px solid transparent;
+  }
+  .item:active{transform:scale(.98);}
+  .item .badge{
+    width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center;
+    font-size:24px; flex-shrink:0;
+  }
+  .item .txt{flex:1; min-width:0;}
+  .item .txt .t{font-size:16.5px; font-weight:700; margin-bottom:2px;}
+  .item .txt .s{font-size:13.5px; color:var(--muted);}
+  .item .chev{color:#c4c8cd; font-size:20px; flex-shrink:0;}
+  .item.add{border:1.5px dashed #c9ccd1; box-shadow:none;}
+  .item.add .badge{background:#eceef1; color:var(--muted);}
+
+  .card{
+    background:var(--card); border-radius:16px; box-shadow:var(--shadow);
+    padding:16px; margin-bottom:12px;
+  }
+  .card .meta{color:var(--muted); font-size:12px; margin-bottom:4px;}
+  .card .title{font-weight:700; font-size:15.5px; margin-bottom:4px;}
+  .card .body{font-size:14px; line-height:1.45; white-space:pre-wrap; color:#3a3d42;}
+  .card .row{display:flex; gap:8px; margin-top:12px;}
+
+  button{font-family:inherit;}
+  .btn{
+    background:var(--accent); color:#fff; border:none; border-radius:12px;
+    padding:11px 14px; font-size:14.5px; font-weight:700; cursor:pointer;
+  }
+  .btn.secondary{background:#f1f2f4; color:var(--text);}
+  .btn.ok{background:var(--ok);}
+  .btn.danger{background:transparent; color:var(--danger); border:1px solid #f3caca; padding:9px 12px; font-size:13.5px;}
+  .btn.small{padding:8px 12px; font-size:13.5px;}
+  .btn.block{width:100%; padding:14px; font-size:15.5px; margin-top:4px;}
+
+  input[type=text], input[type=date], textarea{
+    width:100%; background:#f6f7f8; border:1px solid var(--border); color:var(--text);
+    border-radius:12px; padding:12px; font-size:15px; margin-bottom:10px; font-family:inherit;
+  }
+  textarea{min-height:80px; resize:vertical;}
+  label{font-size:12.5px; color:var(--muted); display:block; margin-bottom:5px; font-weight:600;}
+
+  .empty{color:var(--muted); text-align:center; padding:36px 10px; font-size:14px;}
+  .checkitem{
+    display:flex; align-items:center; gap:10px; padding:13px 12px;
+    background:var(--card); box-shadow:var(--shadow); border-radius:14px; margin-bottom:8px;
+  }
+  .checkitem input[type=checkbox]{width:21px; height:21px; flex-shrink:0; accent-color:var(--accent);}
+  .checkitem span{flex:1; font-size:14.5px;}
+  .checkitem.done span{text-decoration:line-through; color:var(--muted);}
+  .checkitem .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px;}
+
+  .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
+  .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
+  .hidden{display:none !important;}
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<header>
+  <button class="back" id="backBtn">←</button>
+  <h1 id="pageTitle">🚐 Il Mio Camper</h1>
+</header>
+
+<main id="main"></main>
+
+<script>
+// ---------- Firebase setup ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyCOYBM320R9EwwMkBWpLTHLEiBZA8gg02Q",
+  authDomain: "camper-app-ccb86.firebaseapp.com",
+  projectId: "camper-app-ccb86",
+  storageBucket: "camper-app-ccb86.firebasestorage.app",
+  messagingSenderId: "476280929219",
+  appId: "1:476280929219:web:eda2af5900348b9333db76"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const COLLECTION = 'camperApp';
+
+// ---------- Storage helpers (Firestore-backed, shared tra i dispositivi) ----------
+async function sGet(key, fallback){
+  try{
+    const snap = await db.collection(COLLECTION).doc(key).get();
+    if(snap.exists){
+      const data = snap.data();
+      return data && data.value !== undefined ? data.value : fallback;
+    }
+    return fallback;
+  }catch(e){ console.error('firestore get failed', key, e); return fallback; }
+}
+async function sSet(key, value){
+  try{
+    await db.collection(COLLECTION).doc(key).set({
+      value,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(e){ console.error('firestore set failed', key, e); }
+}
+
+// ---------- Real-time listeners ----------
+let activeListeners = {};
+function watchKey(key){
+  if(activeListeners[key]) return;
+  activeListeners[key] = db.collection(COLLECTION).doc(key).onSnapshot(()=>{
+    if(isTypingInForm()) return; // evita di cancellare un form che l'utente sta compilando
+    render();
+  }, err => console.error('listener error', key, err));
+}
+function unwatchAll(){
+  Object.values(activeListeners).forEach(unsub => unsub());
+  activeListeners = {};
+}
+function isTypingInForm(){
+  const el = document.activeElement;
+  if(!el) return false;
+  const tag = el.tagName;
+  return (tag==='INPUT' || tag==='TEXTAREA') && el.value && el.value.length>0;
+}
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function fmtDate(d){
+  if(!d) return '';
+  const dt = new Date(d+'T00:00:00');
+  if(isNaN(dt)) return d;
+  return dt.toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'});
+}
+
+const BASE_SECTIONS = [
+  {id:'diario', icon:'📔', color:'#e8ddfb', label:'Diario di viaggio', sub:'Tappe, luoghi e ricordi', type:'diario'},
+  {id:'manut_da_fare', icon:'🔧', color:'#fde3cf', label:'Manutenzione da effettuare', sub:'Interventi da programmare', type:'manut_todo'},
+  {id:'manut_fatta', icon:'✅', color:'#d7f5e3', label:'Manutenzione effettuata', sub:'Storico interventi eseguiti', type:'manut_done'},
+  {id:'checklist', icon:'📋', color:'#dbeafe', label:'Checklist partenza', sub:'Lista di controllo pre-viaggio', type:'checklist'},
+  {id:'impostazioni', icon:'⚙️', color:'#eceef1', label:'Impostazioni', sub:'Nome, salvataggio, importa/esporta', type:'settings'},
+];
+const CUSTOM_COLORS = ['#fde0e0','#fdf1c7','#d7f0f5','#e3e6fd','#e4f5d7','#fbe0ef'];
+
+let state = { route: 'home', customSections: [] };
+
+const main = document.getElementById('main');
+const pageTitle = document.getElementById('pageTitle');
+const backBtn = document.getElementById('backBtn');
+backBtn.addEventListener('click', ()=> navigate('home'));
+
+async function init(){
+  state.customSections = await sGet('custom_sections', []);
+  navigate('home');
+}
+
+function navigate(route){
+  unwatchAll();
+  state.route = route;
+  backBtn.classList.toggle('show', route!=='home');
+  render();
+}
+
+async function render(){
+  if(state.route === 'home') return renderHome();
+  const base = BASE_SECTIONS.find(s=>s.id===state.route);
+  if(base) return renderBySection(base);
+  const custom = state.customSections.find(s=>s.id===state.route);
+  if(custom) return renderCustom(custom);
+  navigate('home');
+}
+
+function renderHome(){
+  pageTitle.textContent = '🚐 Il Mio Camper';
+  watchKey('custom_sections');
+  let html = '<div class="list">';
+  BASE_SECTIONS.forEach(s=>{
+    html += itemHtml(s.id, s.icon, s.color, s.label, s.sub);
+  });
+  state.customSections.forEach((s,i)=>{
+    html += itemHtml(s.id, s.icon||'📦', CUSTOM_COLORS[i%CUSTOM_COLORS.length], s.label, 'Sezione personalizzata');
+  });
+  html += `<button class="item add" onclick="promptNewSection()">
+      <span class="badge">＋</span>
+      <span class="txt"><div class="t">Aggiungi sezione</div><div class="s">Crea una nuova voce personalizzata</div></span>
+    </button>`;
+  html += '</div>';
+  html += `<div class="status">Dati salvati automaticamente sul dispositivo</div>`;
+  main.innerHTML = html;
+}
+function itemHtml(id, icon, color, label, sub){
+  return `<button class="item" onclick="navigate('${id}')">
+    <span class="badge" style="background:${color}">${icon}</span>
+    <span class="txt"><div class="t">${escapeHtml(label)}</div><div class="s">${escapeHtml(sub||'')}</div></span>
+    <span class="chev">›</span>
+  </button>`;
+}
+
+async function promptNewSection(){
+  const label = prompt('Nome della nuova sezione (es. "Rifornimento gas", "Contatti utili"):');
+  if(!label || !label.trim()) return;
+  const icon = prompt('Emoji/icona per la sezione (opzionale, es. 🔥, 📍, 🧰):', '📦') || '📦';
+  const id = 'custom_' + uid();
+  state.customSections.push({id, label:label.trim(), icon:icon.trim()||'📦'});
+  await sSet('custom_sections', state.customSections);
+  render();
+}
+
+async function renderBySection(section){
+  if(section.type==='diario') return renderDiario(section);
+  if(section.type==='manut_todo') return renderManutTodo(section);
+  if(section.type==='manut_done') return renderManutDone(section);
+  if(section.type==='checklist') return renderChecklist(section);
+  if(section.type==='settings') return renderSettings(section);
+}
+
+async function renderDiario(section){
+  pageTitle.textContent = section.label;
+  watchKey('diario_entries');
+  const entries = await sGet('diario_entries', []);
+  let html = `
+    <div class="card">
+      <label>Data</label>
+      <input type="date" id="d_date" value="${todayStr()}">
+      <label>Titolo (es. tappa, luogo)</label>
+      <input type="text" id="d_title" placeholder="Es. Arrivo a Cinque Terre">
+      <label>Note</label>
+      <textarea id="d_text" placeholder="Cosa è successo oggi..."></textarea>
+      <button class="btn block" onclick="addDiario()">Salva voce</button>
+    </div>`;
+  if(entries.length===0){
+    html += `<div class="empty">Nessuna voce ancora. Aggiungi il tuo primo giorno di viaggio!</div>`;
+  } else {
+    entries.slice().reverse().forEach(e=>{
+      html += `<div class="card">
+        <div class="meta">${fmtDate(e.date)}</div>
+        <div class="title">${escapeHtml(e.title||'(senza titolo)')}</div>
+        <div class="body">${escapeHtml(e.text||'')}</div>
+        <div class="row"><button class="btn danger" onclick="delDiario('${e.id}')">Elimina</button></div>
+      </div>`;
+    });
+  }
+  main.innerHTML = html;
+}
+async function addDiario(){
+  const date = document.getElementById('d_date').value || todayStr();
+  const title = document.getElementById('d_title').value.trim();
+  const text = document.getElementById('d_text').value.trim();
+  if(!title && !text) return;
+  const entries = await sGet('diario_entries', []);
+  entries.push({id:uid(), date, title, text});
+  await sSet('diario_entries', entries);
+  renderDiario(BASE_SECTIONS[0]);
+}
+async function delDiario(id){
+  let entries = await sGet('diario_entries', []);
+  entries = entries.filter(e=>e.id!==id);
+  await sSet('diario_entries', entries);
+  renderDiario(BASE_SECTIONS[0]);
+}
+
+async function renderManutTodo(section){
+  pageTitle.textContent = section.label;
+  watchKey('manut_todo');
+  const todo = await sGet('manut_todo', []);
+  let html = `
+    <div class="card">
+      <label>Intervento da fare</label>
+      <input type="text" id="m_task" placeholder="Es. Cambio olio, controllo gas...">
+      <label>Note (opzionale)</label>
+      <textarea id="m_note" placeholder="Dettagli, scadenza, km..."></textarea>
+      <button class="btn block" onclick="addManutTodo()">Aggiungi</button>
+    </div>`;
+  if(todo.length===0){
+    html += `<div class="empty">Nessuna manutenzione in sospeso 🎉</div>`;
+  } else {
+    todo.forEach(t=>{
+      html += `<div class="card">
+        <div class="title">${escapeHtml(t.task)}</div>
+        ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
+        <div class="row">
+          <button class="btn ok small" onclick="completeManut('${t.id}')">✅ Fatto</button>
+          <button class="btn danger" onclick="delManutTodo('${t.id}')">Elimina</button>
+        </div>
+      </div>`;
+    });
+  }
+  main.innerHTML = html;
+}
+async function addManutTodo(){
+  const task = document.getElementById('m_task').value.trim();
+  const note = document.getElementById('m_note').value.trim();
+  if(!task) return;
+  const todo = await sGet('manut_todo', []);
+  todo.push({id:uid(), task, note});
+  await sSet('manut_todo', todo);
+  renderManutTodo(BASE_SECTIONS[1]);
+}
+async function delManutTodo(id){
+  let todo = await sGet('manut_todo', []);
+  todo = todo.filter(t=>t.id!==id);
+  await sSet('manut_todo', todo);
+  renderManutTodo(BASE_SECTIONS[1]);
+}
+async function completeManut(id){
+  let todo = await sGet('manut_todo', []);
+  const item = todo.find(t=>t.id===id);
+  if(!item) return;
+  todo = todo.filter(t=>t.id!==id);
+  await sSet('manut_todo', todo);
+  const done = await sGet('manut_done', []);
+  done.push({id:uid(), task:item.task, note:item.note, date:todayStr()});
+  await sSet('manut_done', done);
+  renderManutTodo(BASE_SECTIONS[1]);
+}
+
+async function renderManutDone(section){
+  pageTitle.textContent = section.label;
+  watchKey('manut_done');
+  const done = await sGet('manut_done', []);
+  let html = '';
+  if(done.length===0){
+    html += `<div class="empty">Nessuna manutenzione registrata ancora.</div>`;
+  } else {
+    done.slice().reverse().forEach(t=>{
+      html += `<div class="card">
+        <div class="meta">${fmtDate(t.date)}</div>
+        <div class="title">${escapeHtml(t.task)}</div>
+        ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
+        <div class="row"><button class="btn danger" onclick="delManutDone('${t.id}')">Elimina</button></div>
+      </div>`;
+    });
+  }
+  main.innerHTML = html;
+}
+async function delManutDone(id){
+  let done = await sGet('manut_done', []);
+  done = done.filter(t=>t.id!==id);
+  await sSet('manut_done', done);
+  renderManutDone(BASE_SECTIONS[2]);
+}
+
+async function renderChecklist(section){
+  pageTitle.textContent = section.label;
+  watchKey('checklist_items');
+  const items = await sGet('checklist_items', []);
+  let html = `<div class="fab-row">
+      <button class="btn secondary small" onclick="resetChecklist()">🔄 Nuovo viaggio (resetta spunte)</button>
+    </div>
+    <div class="card">
+      <label>Nuova voce checklist</label>
+      <input type="text" id="c_text" placeholder="Es. Controllare gas, riempire acqua...">
+      <button class="btn block" onclick="addChecklistItem()">Aggiungi voce</button>
+    </div>`;
+  if(items.length===0){
+    html += `<div class="empty">Nessuna voce. Crea la tua checklist di partenza.</div>`;
+  } else {
+    items.forEach(it=>{
+      html += `<div class="checkitem ${it.done?'done':''}">
+        <input type="checkbox" ${it.done?'checked':''} onchange="toggleChecklistItem('${it.id}')">
+        <span>${escapeHtml(it.text)}</span>
+        <button class="del" onclick="delChecklistItem('${it.id}')">✕</button>
+      </div>`;
+    });
+  }
+  main.innerHTML = html;
+}
+async function addChecklistItem(){
+  const text = document.getElementById('c_text').value.trim();
+  if(!text) return;
+  const items = await sGet('checklist_items', []);
+  items.push({id:uid(), text, done:false});
+  await sSet('checklist_items', items);
+  renderChecklist(BASE_SECTIONS[3]);
+}
+async function toggleChecklistItem(id){
+  const items = await sGet('checklist_items', []);
+  const it = items.find(i=>i.id===id);
+  if(it) it.done = !it.done;
+  await sSet('checklist_items', items);
+  renderChecklist(BASE_SECTIONS[3]);
+}
+async function delChecklistItem(id){
+  let items = await sGet('checklist_items', []);
+  items = items.filter(i=>i.id!==id);
+  await sSet('checklist_items', items);
+  renderChecklist(BASE_SECTIONS[3]);
+}
+async function resetChecklist(){
+  const items = await sGet('checklist_items', []);
+  items.forEach(i=>i.done=false);
+  await sSet('checklist_items', items);
+  renderChecklist(BASE_SECTIONS[3]);
+}
+
+async function renderCustom(section){
+  pageTitle.textContent = section.label;
+  const key = 'custom_data_' + section.id;
+  watchKey(key);
+  const items = await sGet(key, []);
+  let html = `
+    <div class="card">
+      <label>Nuova voce</label>
+      <input type="text" id="cu_text" placeholder="Aggiungi una voce...">
+      <button class="btn block" onclick="addCustomItem('${section.id}')">Aggiungi</button>
+    </div>`;
+  if(items.length===0){
+    html += `<div class="empty">Nessuna voce ancora.</div>`;
+  } else {
+    items.slice().reverse().forEach(it=>{
+      html += `<div class="checkitem ${it.done?'done':''}">
+        <input type="checkbox" ${it.done?'checked':''} onchange="toggleCustomItem('${section.id}','${it.id}')">
+        <span>${escapeHtml(it.text)}</span>
+        <button class="del" onclick="delCustomItem('${section.id}','${it.id}')">✕</button>
+      </div>`;
+    });
+  }
+  html += `<div class="row" style="margin-top:20px;">
+      <button class="btn danger" onclick="deleteSection('${section.id}')">🗑️ Elimina questa sezione</button>
+    </div>`;
+  main.innerHTML = html;
+}
+async function addCustomItem(sectionId){
+  const text = document.getElementById('cu_text').value.trim();
+  if(!text) return;
+  const key = 'custom_data_' + sectionId;
+  const items = await sGet(key, []);
+  items.push({id:uid(), text, done:false});
+  await sSet(key, items);
+  renderCustom(state.customSections.find(s=>s.id===sectionId));
+}
+async function toggleCustomItem(sectionId, itemId){
+  const key = 'custom_data_' + sectionId;
+  const items = await sGet(key, []);
+  const it = items.find(i=>i.id===itemId);
+  if(it) it.done = !it.done;
+  await sSet(key, items);
+  renderCustom(state.customSections.find(s=>s.id===sectionId));
+}
+async function delCustomItem(sectionId, itemId){
+  const key = 'custom_data_' + sectionId;
+  let items = await sGet(key, []);
+  items = items.filter(i=>i.id!==itemId);
+  await sSet(key, items);
+  renderCustom(state.customSections.find(s=>s.id===sectionId));
+}
+async function deleteSection(sectionId){
+  if(!confirm('Eliminare questa sezione e tutte le sue voci?')) return;
+  state.customSections = state.customSections.filter(s=>s.id!==sectionId);
+  await sSet('custom_sections', state.customSections);
+  navigate('home');
+}
+
+// ---------- IMPOSTAZIONI ----------
+const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','custom_sections','user_name'];
+
+async function renderSettings(section){
+  pageTitle.textContent = section.label;
+  const userName = await sGet('user_name', '');
+  let html = `
+    <div class="card">
+      <label>Il tuo nome</label>
+      <input type="text" id="s_name" placeholder="Es. Marco o Giulia" value="${escapeHtml(userName)}">
+      <button class="btn block" onclick="saveUserName()">Salva nome</button>
+    </div>
+
+    <div class="card">
+      <div class="title">Salvataggio dati</div>
+      <div class="body">Esporta tutti i dati dell'app (diario, manutenzioni, checklist, sezioni personalizzate) in un file, per farne un backup o trasferirli su un altro telefono.</div>
+      <div class="row">
+        <button class="btn block" onclick="exportData()">⬇️ Esporta backup</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">Ripristina dati</div>
+      <div class="body">Importa un file di backup esportato in precedenza. Attenzione: sovrascrive i dati attuali.</div>
+      <input type="file" id="s_file" accept="application/json" style="margin-top:8px; margin-bottom:10px;">
+      <button class="btn block secondary" onclick="importData()">⬆️ Importa backup</button>
+    </div>
+
+    <div class="card">
+      <div class="title">Sincronizzazione condivisa</div>
+      <div class="body">🟢 Attiva — i dati sono sincronizzati in tempo reale tra tutti i dispositivi collegati a questa app tramite Firebase.</div>
+    </div>
+  `;
+  main.innerHTML = html;
+}
+
+async function saveUserName(){
+  const name = document.getElementById('s_name').value.trim();
+  await sSet('user_name', name);
+  alert('Nome salvato: ' + (name || '(vuoto)'));
+}
+
+async function exportData(){
+  const data = {};
+  for(const key of DATA_KEYS){
+    data[key] = await sGet(key, key==='user_name' ? '' : []);
+  }
+  const customSections = data.custom_sections || [];
+  data.custom_data = {};
+  for(const s of customSections){
+    data.custom_data[s.id] = await sGet('custom_data_' + s.id, []);
+  }
+  data._exported_at = new Date().toISOString();
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'camper-app-backup-' + todayStr() + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function importData(){
+  const fileInput = document.getElementById('s_file');
+  const file = fileInput.files[0];
+  if(!file){ alert('Seleziona prima un file di backup.'); return; }
+  if(!confirm('Questo sovrascriverà tutti i dati attuali. Continuare?')) return;
+
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    for(const key of DATA_KEYS){
+      if(key in data) await sSet(key, data[key]);
+    }
+    if(data.custom_data){
+      for(const sectionId in data.custom_data){
+        await sSet('custom_data_' + sectionId, data.custom_data[sectionId]);
+      }
+    }
+    state.customSections = await sGet('custom_sections', []);
+    alert('Dati importati con successo.');
+    navigate('home');
+  }catch(e){
+    alert('File non valido o corrotto. Import annullato.');
+  }
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str||'';
+  return d.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>
