@@ -101,6 +101,21 @@
   .fixed-action .inner{max-width:640px; margin:0 auto;}
   .list-spacer{height:76px;}
 
+  #catalogoList{max-height:320px; overflow-y:auto; margin-top:4px;}
+  .catalogo-row{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer; font-size:14px;
+  }
+  .catalogo-row:active{background:#f6f7f8;}
+  .catalogo-plus{color:var(--accent); font-weight:800; font-size:16px; flex-shrink:0;}
+
+  .sort-toggle{display:flex; gap:8px; margin:4px 0 14px;}
+  .sort-btn{
+    flex:1; background:var(--card); border:1px solid var(--border); color:var(--muted);
+    padding:9px 10px; border-radius:12px; font-size:13px; font-weight:700; cursor:pointer; box-shadow:var(--shadow);
+  }
+  .sort-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+
   .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
   .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
   .hidden{display:none !important;}
@@ -952,6 +967,101 @@ function calcolaFrequenti(storico, limit=10){
   return Object.values(map).sort((a,b)=>b.count-a.count).slice(0,limit);
 }
 
+// ---------- Catalogo articoli: elenco predefinito per aggiunta rapida ----------
+const CATALOGO_SPESA = [
+  "Bastoncini findus","Coca cola","Detersivo lavastoviglie","Mandorle","Piselli","Porto","Tagliatelle",
+  "Aceto bianco","Birre","Candeggina","Piastrine","Uova","Pinoli","Acqua frizzante e naturale",
+  "Cipolline coop","Rotoloni carta","Wafer","Tuc con. Verde","Salviette umide","Sacchetti ghiaccio",
+  "Rotoli carta cucina","Riso","Pane x toast","Pan bauletto cereali","Limoni","Latte","Cetriolini",
+  "Cipolline","Carciofini","Banane","Bagnoschiuma Silvia","Aglio","Pomodori","Orecchiette",
+  "Olive piccanti","Gocciole","Acciughe","Ace sgrass. Cucina","Aceto balsamico","Acetone",
+  "Acqua distillata","Ammorbidente","Ananas","Arachidi","Arance","Ariosto x carne","Assorbenti giorno",
+  "Assorbenti notte","Bagnoschiuma Vito","Basilico","Bastoncini gatti","Bicarbonato",
+  "Biscotti digestive sondey","Biscotti Vito Silvia","Bombolette","Brodo","Burro senza lattosio",
+  "Caffè","Caffè deca","Camomilla","Caramello","Carbone","Carne shimmental","Carote","Cartaigienica",
+  "Cerotti","Cetrioli","Chicchette gatti","Cioccolata caffè arabica","Cioccolata fondente","Cipolle",
+  "Citrosodina","Clementine","Cloro","Colluttorio","Colomba classica","Contenitori cuki","Cornetti",
+  "Cornflakes","Crakers silvia","Crakers vito","Crema capelli","Crostini","Crudo 18 mesi Parma",
+  "Cubetti di pancetta","Cuoricini gatti","Dadi","Dado in polvere","Dentifricio Silvia",
+  "Dentifricio Vito","Deodorante bagno","Detersivo lavatrice","Detersivo Napisan","Detersivo piatti",
+  "Ditaloni","Farina semola","Fave","Fazzoletti","Fazzoletti scatola",
+  "Fette biscottate al malto, ai cereali","Finocchi","Fissatore per capelli","Fragole","Funghetti",
+  "Funghi","Gel capelli","Gelati cremini","Gnocchi","Grissini sgranocchi","Insalata","Intimo",
+  "Jogurt","Lacca","Lievito","Lievito per dolci","Liqurizie","Marmellata","Mascarpone 750g",
+  "Melanzane","Mele","Merluzzo o nasello 210 gr.","Mozzarelle","Noci, noci brasiliane, mandorle",
+  "Nutella","Olio di girasole sagra","Orata 190gr.","Orecchiette cime di rapa","Oro saiwa","Ortolina",
+  "Orzo","Pagliette saponate","Pane pugliese","Pangrattato","Parmigiano","Parmigiano reggiano",
+  "Pasta fusilli penne","Patate","Patatine","Patatine fritte","Pellicola aluminio","Peperoncino",
+  "Peperoni","Percoche","Pere","Pesce","Petto di tacchino","Pizza ristorante","Pizze","Pollo arrosto",
+  "Polpa pronta mutti","Popcorn","Porro","Pronto legno","Pulisci forno","Rapanelli","Roastbeef",
+  "Roll ascelle","Sacchetti verdi verdura","Sacco sale grosso","Salamino piccante","Sale fino",
+  "Sale grosso","Savoiardi 250g","Scalogno cipolle","Schiuma da barba","Sedano","Sgrassatore",
+  "Sgrassatore smac","Shampoo","Sogliola 250 gr.","Sottilette","Spaghetti","Spazzolino denti",
+  "Spinaci","Spugne x piatti","Straccetti di pollo","Stuzzicadenti","Sughi italiamo","Sughi star",
+  "Sugo di carne","Tampax","Te verde","Terra","Tonno all'olio","Tonno naturale","Tortellini",
+  "Tovaglioli","Trota 240 gr.","Vetril","Viakal wc","Vino",
+  "Vitello magro, Petto di pollo, Lonza di maiale","Vitellone muscolo","Vongole vasetto","Wcnet",
+  "Wustel","Zafferano","Zucchero bianco","Zucchine","Zuppa toscana"
+];
+
+function toggleCatalogo(){
+  const wrap = document.getElementById('catalogoWrap');
+  wrap.classList.toggle('hidden');
+  if(!wrap.classList.contains('hidden')){
+    document.getElementById('catalogo_search').value = '';
+    renderCatalogoFiltrato();
+    document.getElementById('catalogo_search').focus();
+  }
+}
+function renderCatalogoFiltrato(){
+  const q = document.getElementById('catalogo_search').value.trim().toLowerCase();
+  const listEl = document.getElementById('catalogoList');
+  const risultati = (q
+    ? CATALOGO_SPESA.filter(nome => nome.toLowerCase().includes(q))
+    : CATALOGO_SPESA
+  ).slice().sort((a,b)=>a.localeCompare(b,'it'));
+  if(risultati.length===0){
+    listEl.innerHTML = `<div class="empty" style="padding:16px 4px;">Nessun articolo trovato.</div>`;
+    return;
+  }
+  listEl.innerHTML = risultati.slice(0,80).map(nome=>
+    `<div class="catalogo-row" onclick="addFromCatalogo('${nome.replace(/'/g,"\\'")}')">
+      <span>${escapeHtml(nome)}</span><span class="catalogo-plus">＋</span>
+    </div>`
+  ).join('') + (risultati.length>80 ? `<div class="empty" style="padding:10px 4px;">Altri ${risultati.length-80} risultati: affina la ricerca...</div>` : '');
+}
+async function addFromCatalogo(nome){
+  const items = await sGet('lista_spesa_items', []);
+  const giaPresente = items.some(i => !i.done && i.text.toLowerCase()===nome.toLowerCase());
+  if(giaPresente){
+    await customAlert(`"${nome}" è già nella lista.`);
+    return;
+  }
+  items.push({id:uid(), text:nome, category:'Altro', done:false});
+  await sSet('lista_spesa_items', items);
+  logActivity('Lista della spesa', nome);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+
+// ---------- Ordinamento lista spesa (per stato o alfabetico) ----------
+function getListaSpesaSort(){
+  try{ return localStorage.getItem('camper_ls_sort') || 'stato'; }catch(e){ return 'stato'; }
+}
+function setListaSpesaSort(modo){
+  try{ localStorage.setItem('camper_ls_sort', modo); }catch(e){}
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+function ordinaArticoli(list, modo){
+  const arr = list.slice();
+  if(modo === 'alfa'){
+    arr.sort((a,b)=> a.text.localeCompare(b.text, 'it', {sensitivity:'base'}));
+  } else {
+    arr.sort((a,b)=> (a.done === b.done) ? 0 : (a.done ? 1 : -1));
+  }
+  return arr;
+}
+
+
 async function renderListaSpesa(section){
   pageTitle.textContent = section.label;
   watchKey('lista_spesa_items');
@@ -960,6 +1070,7 @@ async function renderListaSpesa(section){
   currentFrequenti = calcolaFrequenti(storico);
   const categorieEsistenti = [...new Set(items.map(i=>i.category))];
   const opzioni = [...new Set([...CATEGORIE_SUGGERITE, ...categorieEsistenti])];
+  const sortMode = getListaSpesaSort();
 
   let html = `
     <div class="card">
@@ -972,6 +1083,14 @@ async function renderListaSpesa(section){
       </select>
       <input type="text" id="ls_cat_custom" placeholder="Nome della nuova categoria" class="hidden" style="margin-top:-2px;">
       <button class="btn block" onclick="addListaSpesa()">Aggiungi</button>
+    </div>
+
+    <div class="card">
+      <button class="btn secondary block" onclick="toggleCatalogo()">📚 Aggiungi dal catalogo articoli</button>
+      <div id="catalogoWrap" class="hidden" style="margin-top:12px;">
+        <input type="text" id="catalogo_search" placeholder="Cerca nel catalogo..." oninput="renderCatalogoFiltrato()">
+        <div id="catalogoList"></div>
+      </div>
     </div>`;
 
   if(currentFrequenti.length > 0){
@@ -980,6 +1099,13 @@ async function renderListaSpesa(section){
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
         ${currentFrequenti.map((f,idx)=>`<button class="btn secondary small" onclick="quickAddFromStorico(${idx})">+ ${escapeHtml(f.text)}</button>`).join('')}
       </div>
+    </div>`;
+  }
+
+  if(items.length>0){
+    html += `<div class="sort-toggle">
+      <button class="sort-btn ${sortMode==='stato'?'active':''}" onclick="setListaSpesaSort('stato')">☑️ Per stato</button>
+      <button class="sort-btn ${sortMode==='alfa'?'active':''}" onclick="setListaSpesaSort('alfa')">🔤 A-Z</button>
     </div>`;
   }
 
@@ -993,7 +1119,7 @@ async function renderListaSpesa(section){
       gruppi[cat].push(it);
     });
     Object.keys(gruppi).sort().forEach(cat=>{
-      const list = gruppi[cat];
+      const list = ordinaArticoli(gruppi[cat], sortMode);
       const presi = list.filter(i=>i.done).length;
       html += `<div class="cat-header" style="background:${colorePerCategoria(cat)}">
         <span>${escapeHtml(cat)}</span>
@@ -1158,10 +1284,10 @@ async function deleteSection(sectionId){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 const CHANGELOG = [
-  {v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},
-  {v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},
+  {v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
   {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
