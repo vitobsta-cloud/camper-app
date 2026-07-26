@@ -22,17 +22,24 @@
   header{
     padding:16px; background:var(--bg);
     position:sticky; top:0; z-index:10;
-    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    display:flex; align-items:center; gap:8px;
   }
-  header .back{
-    width:40px; height:40px; flex-shrink:0; padding:0;
-    background:var(--card); border:none; color:var(--text); font-size:18px; cursor:pointer;
-    display:none; align-items:center; justify-content:center; border-radius:50%; box-shadow:var(--shadow);
-  }
-  header .back.show{display:flex;}
-  header .back:active{transform:scale(.92);}
   header h1{font-size:19px; margin:0; font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  main{padding:0 16px 40px; max-width:640px; margin:0 auto;}
+  main{padding:0 16px 90px; max-width:640px; margin:0 auto;}
+
+  .bottom-nav{
+    display:none; position:fixed; left:0; right:0; bottom:0; z-index:60;
+    justify-content:center; gap:44px; background:var(--card);
+    padding:10px 20px calc(10px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 12px rgba(0,0,0,0.1);
+  }
+  .bottom-nav.show{display:flex;}
+  .bottom-nav-btn{
+    width:52px; height:52px; border-radius:50%; border:none; background:#f1f2f4;
+    color:var(--text); font-size:22px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; box-shadow:var(--shadow);
+  }
+  .bottom-nav-btn:active{transform:scale(.92); background:#e6e8eb;}
 
   .list{display:flex; flex-direction:column; gap:12px;}
   .item{
@@ -97,11 +104,11 @@
   .checkitem.done .label{text-decoration:line-through; color:var(--muted);}
   .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px; flex-shrink:0;}
 
-  .fixed-action{position:fixed; left:0; right:0; bottom:0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:50;}
+  .fixed-action{position:fixed; left:0; right:0; bottom:74px; padding:12px 16px; background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:55;}
   .fixed-action .inner{max-width:640px; margin:0 auto;}
-  .list-spacer{height:76px;}
+  .list-spacer{height:150px;}
 
-  #catalogoList{max-height:320px; overflow-y:auto; margin-top:4px;}
+  #catalogoList{margin-top:4px;}
   .catalogo-row{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer; font-size:14px;
@@ -115,6 +122,8 @@
     padding:9px 10px; border-radius:12px; font-size:13px; font-weight:700; cursor:pointer; box-shadow:var(--shadow);
   }
   .sort-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+
+  .chart-wrap{position:relative; height:220px; margin-top:10px;}
 
   .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
   .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
@@ -191,6 +200,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -228,13 +238,16 @@
 
 <div id="appRoot" class="hidden">
 <header>
-  <button class="back" id="backBtn">←</button>
-  <button class="back" id="homeBtn">🏠</button>
   <h1 id="pageTitle">🚐 Il Mio Camper</h1>
 </header>
 
 <main id="main"></main>
 <div class="credits">Il Mio Camper <span id="creditsVersione"></span></div>
+
+<div id="bottomNav" class="bottom-nav">
+  <button class="bottom-nav-btn" id="backBtn">←</button>
+  <button class="bottom-nav-btn" id="homeBtn">🏠</button>
+</div>
 </div>
 
 <script>
@@ -484,6 +497,7 @@ const BASE_SECTIONS = [
   {id:'manut_fatta', icon:'✅', color:'#d7f5e3', label:'Manutenzione effettuata', sub:'Storico interventi eseguiti', type:'manut_done'},
   {id:'checklist', icon:'📋', color:'#dbeafe', label:'Checklist partenza', sub:'Lista di controllo pre-viaggio', type:'checklist'},
   {id:'lista_spesa', icon:'🛒', color:'#fef3c7', label:'Lista della spesa', sub:'Organizzata per categoria', type:'lista_spesa'},
+  {id:'grafici', icon:'📊', color:'#d0f4ea', label:'Grafici', sub:'Costi, km e andamento nel tempo', type:'grafici'},
   {id:'impostazioni', icon:'⚙️', color:'#eceef1', label:'Impostazioni', sub:'Nome, salvataggio, importa/esporta', type:'settings'},
 ];
 const CUSTOM_COLORS = ['#fde0e0','#fdf1c7','#d7f0f5','#e3e6fd','#e4f5d7','#fbe0ef'];
@@ -495,7 +509,11 @@ const main = document.getElementById('main');
 const pageTitle = document.getElementById('pageTitle');
 const backBtn = document.getElementById('backBtn');
 const homeBtn = document.getElementById('homeBtn');
-backBtn.addEventListener('click', ()=> navigate('home'));
+const bottomNav = document.getElementById('bottomNav');
+backBtn.addEventListener('click', ()=>{
+  if(state.route === 'catalogo_spesa') navigate('lista_spesa');
+  else navigate('home');
+});
 homeBtn.addEventListener('click', ()=> navigate('home'));
 
 async function init(){
@@ -508,13 +526,13 @@ function navigate(route){
   unwatchAll();
   document.querySelectorAll('.fixed-action').forEach(el => el.remove());
   state.route = route;
-  backBtn.classList.toggle('show', route!=='home');
-  homeBtn.classList.toggle('show', route!=='home');
+  bottomNav.classList.toggle('show', route!=='home');
   render();
 }
 
 async function render(){
   if(state.route === 'home') return renderHome();
+  if(state.route === 'catalogo_spesa') return renderCatalogoSpesa();
   const base = BASE_SECTIONS.find(s=>s.id===state.route);
   if(base) return renderBySection(base);
   const custom = state.customSections.find(s=>s.id===state.route);
@@ -577,6 +595,7 @@ async function renderBySection(section){
   if(section.type==='checklist') return renderChecklist(section);
   if(section.type==='lista_spesa') return renderListaSpesa(section);
   if(section.type==='settings') return renderSettings(section);
+  if(section.type==='grafici') return renderGrafici(section);
 }
 
 async function renderDiario(section){
@@ -1059,14 +1078,30 @@ const CATALOGO_SPESA = [
   "Wustel","Zafferano","Zucchero bianco","Zucchine","Zuppa toscana"
 ];
 
-function toggleCatalogo(){
-  const wrap = document.getElementById('catalogoWrap');
-  wrap.classList.toggle('hidden');
-  if(!wrap.classList.contains('hidden')){
-    document.getElementById('catalogo_search').value = '';
-    renderCatalogoFiltrato();
-    document.getElementById('catalogo_search').focus();
-  }
+async function renderCatalogoSpesa(){
+  pageTitle.textContent = 'Catalogo articoli';
+  const items = await sGet('lista_spesa_items', []);
+  const categorieEsistenti = [...new Set(items.map(i=>i.category))];
+  const opzioni = [...new Set([...CATEGORIE_SUGGERITE, ...categorieEsistenti])];
+  const html = `
+    <div class="card">
+      <label>Aggiungi gli articoli scelti a questa categoria</label>
+      <select id="catalogo_cat_select">
+        ${opzioni.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+      </select>
+      <label style="margin-top:10px;">Cerca nel catalogo</label>
+      <input type="text" id="catalogo_search" placeholder="Es. detersivo, pane..." oninput="renderCatalogoFiltrato()">
+    </div>
+    <div id="catalogoList"></div>
+    <div class="list-spacer"></div>
+  `;
+  main.innerHTML = html;
+  renderCatalogoFiltrato();
+
+  const bar = document.createElement('div');
+  bar.className = 'fixed-action';
+  bar.innerHTML = `<div class="inner"><button class="btn block" onclick="navigate('lista_spesa')">✅ Fatto, torna alla lista</button></div>`;
+  document.body.appendChild(bar);
 }
 function renderCatalogoFiltrato(){
   const q = document.getElementById('catalogo_search').value.trim().toLowerCase();
@@ -1079,25 +1114,29 @@ function renderCatalogoFiltrato(){
     listEl.innerHTML = `<div class="empty" style="padding:16px 4px;">Nessun articolo trovato.</div>`;
     return;
   }
-  listEl.innerHTML = risultati.slice(0,80).map(nome=>
-    `<div class="catalogo-row" onclick="addFromCatalogo('${nome.replace(/'/g,"\\'")}')">
+  listEl.innerHTML = risultati.slice(0,80).map((nome,idx)=>
+    `<div class="catalogo-row" onclick="addFromCatalogo(${idx})" data-nome="${escapeHtml(nome)}">
       <span>${escapeHtml(nome)}</span><span class="catalogo-plus">＋</span>
     </div>`
   ).join('') + (risultati.length>80 ? `<div class="empty" style="padding:10px 4px;">Altri ${risultati.length-80} risultati: affina la ricerca...</div>` : '');
+  listEl._risultati = risultati;
 }
-async function addFromCatalogo(nome){
+async function addFromCatalogo(idx){
+  const listEl = document.getElementById('catalogoList');
+  const nome = listEl._risultati[idx];
+  if(!nome) return;
+  const categoria = document.getElementById('catalogo_cat_select').value || 'Altro';
   const items = await sGet('lista_spesa_items', []);
   const giaPresente = items.some(i => !i.done && i.text.toLowerCase()===nome.toLowerCase());
   if(giaPresente){
     await customAlert(`"${nome}" è già nella lista.`);
     return;
   }
-  items.push({id:uid(), text:nome, category:'Altro', done:false});
+  items.push({id:uid(), text:nome, category:categoria, done:false});
   await sSet('lista_spesa_items', items);
   logActivity('Lista della spesa', nome);
-  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+  await customAlert(`✅ "${nome}" aggiunto a "${categoria}".`);
 }
-
 // ---------- Ordinamento lista spesa (per stato o alfabetico) ----------
 function getListaSpesaSort(){
   try{ return localStorage.getItem('camper_ls_sort') || 'stato'; }catch(e){ return 'stato'; }
@@ -1141,11 +1180,7 @@ async function renderListaSpesa(section){
     </div>
 
     <div class="card">
-      <button class="btn secondary block" onclick="toggleCatalogo()">📚 Aggiungi dal catalogo articoli</button>
-      <div id="catalogoWrap" class="hidden" style="margin-top:12px;">
-        <input type="text" id="catalogo_search" placeholder="Cerca nel catalogo..." oninput="renderCatalogoFiltrato()">
-        <div id="catalogoList"></div>
-      </div>
+      <button class="btn secondary block" onclick="navigate('catalogo_spesa')">📚 Aggiungi dal catalogo articoli</button>
     </div>`;
 
   if(currentFrequenti.length > 0){
@@ -1336,13 +1371,151 @@ async function deleteSection(sectionId){
   navigate('home');
 }
 
+// ---------- GRAFICI ----------
+function getGraficiPeriodo(){
+  try{ return localStorage.getItem('camper_grafici_periodo') || 'tutto'; }catch(e){ return 'tutto'; }
+}
+function setGraficiPeriodo(v){
+  try{ localStorage.setItem('camper_grafici_periodo', v); }catch(e){}
+  renderGrafici(BASE_SECTIONS.find(s=>s.type==='grafici'));
+}
+function passaPeriodo(dateStr, periodo){
+  if(!dateStr) return false;
+  if(periodo === 'tutto') return true;
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d)) return false;
+  const now = new Date();
+  if(periodo === 'mese'){
+    const limite = new Date(); limite.setDate(now.getDate()-30);
+    return d >= limite;
+  }
+  if(periodo === '3mesi'){
+    const limite = new Date(); limite.setDate(now.getDate()-90);
+    return d >= limite;
+  }
+  if(periodo === 'anno'){
+    return d.getFullYear() === now.getFullYear();
+  }
+  return true;
+}
+const MESI_BREVI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+function raggruppaPerMese(items, dateField, valueField){
+  const map = {};
+  items.forEach(it=>{
+    const d = it[dateField];
+    if(!d) return;
+    const dt = new Date(d+'T00:00:00');
+    if(isNaN(dt)) return;
+    const key = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+    if(!map[key]) map[key] = 0;
+    map[key] += valueField ? (Number(it[valueField])||0) : 1;
+  });
+  const keys = Object.keys(map).sort();
+  const labels = keys.map(k=>{
+    const [y,m] = k.split('-');
+    return MESI_BREVI[parseInt(m,10)-1] + ' ' + y.slice(2);
+  });
+  const values = keys.map(k=>map[k]);
+  return {labels, values};
+}
+
+let graficiChartInstances = [];
+function distruggiGraficiChart(){
+  graficiChartInstances.forEach(c=>{ try{ c.destroy(); }catch(e){} });
+  graficiChartInstances = [];
+}
+function disegnaBarre(canvasId, wrapId, items, dateField, valueField, label, color, emptyMsg){
+  const conDati = items.filter(it=>it[dateField]);
+  if(conDati.length===0){
+    document.getElementById(wrapId).innerHTML = `<div class="empty" style="padding:20px 4px;">${emptyMsg}</div>`;
+    return;
+  }
+  const {labels, values} = raggruppaPerMese(conDati, dateField, valueField);
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const chart = new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[{ label, data: values, backgroundColor: color, borderRadius:6 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ y:{ beginAtZero:true, ticks:{precision:0} } }
+    }
+  });
+  graficiChartInstances.push(chart);
+}
+function disegnaLineaKm(items, periodo){
+  const conKm = items.filter(it=>it.km && it.date).sort((a,b)=>a.date.localeCompare(b.date));
+  if(conKm.length===0){
+    document.getElementById('chartKmWrap').innerHTML = `<div class="empty" style="padding:20px 4px;">Nessun dato di chilometraggio registrato in questo periodo.</div>`;
+    return;
+  }
+  const labels = conKm.map(it=>fmtDate(it.date));
+  const values = conKm.map(it=>Number(it.km));
+  const ctx = document.getElementById('chartKm').getContext('2d');
+  const chart = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets:[{ label:'Km', data: values, borderColor:'#34a366', backgroundColor:'rgba(52,163,102,0.15)', fill:true, tension:0.25, pointRadius:4 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{precision:0} } } }
+  });
+  graficiChartInstances.push(chart);
+}
+
+async function renderGrafici(section){
+  pageTitle.textContent = section.label;
+  const periodo = getGraficiPeriodo();
+  const done = await sGet('manut_done', []);
+  const diario = await sGet('diario_entries', []);
+
+  const doneFiltrati = done.filter(t => passaPeriodo(t.date, periodo));
+  const diarioFiltrati = diario.filter(t => passaPeriodo(t.date, periodo));
+
+  let html = `
+    <div class="card">
+      <label>Periodo da visualizzare</label>
+      <select id="grafici_periodo" onchange="setGraficiPeriodo(this.value)">
+        <option value="mese" ${periodo==='mese'?'selected':''}>Ultimo mese</option>
+        <option value="3mesi" ${periodo==='3mesi'?'selected':''}>Ultimi 3 mesi</option>
+        <option value="anno" ${periodo==='anno'?'selected':''}>Anno corrente</option>
+        <option value="tutto" ${periodo==='tutto'?'selected':''}>Tutto</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="title">📏 Andamento chilometraggio</div>
+      <div id="chartKmWrap" class="chart-wrap"><canvas id="chartKm"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="title">💶 Spesa manutenzione per mese</div>
+      <div id="chartSpesaWrap" class="chart-wrap"><canvas id="chartSpesa"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="title">🔧 Interventi di manutenzione per mese</div>
+      <div id="chartInterventiWrap" class="chart-wrap"><canvas id="chartInterventi"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="title">📔 Voci diario per mese</div>
+      <div id="chartViaggiWrap" class="chart-wrap"><canvas id="chartViaggi"></canvas></div>
+    </div>
+  `;
+  main.innerHTML = html;
+
+  distruggiGraficiChart();
+  disegnaLineaKm(doneFiltrati, periodo);
+  disegnaBarre('chartSpesa', 'chartSpesaWrap', doneFiltrati, 'date', 'euro', 'Spesa €', '#e8834a', 'Nessuna spesa di manutenzione registrata in questo periodo.');
+  disegnaBarre('chartInterventi', 'chartInterventiWrap', doneFiltrati, 'date', null, 'Interventi', '#4a9de8', 'Nessun intervento registrato in questo periodo.');
+  disegnaBarre('chartViaggi', 'chartViaggiWrap', diarioFiltrati, 'date', null, 'Voci diario', '#8b6fd6', 'Nessuna voce di diario in questo periodo.');
+}
+
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v2.3';
+const APP_VERSION = 'v2.5';
 const CHANGELOG = [
-  {v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},
-  {v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v2.5', note:'Indietro/Home spostati in una barra fissa in basso (stile Android), sempre visibile. Il catalogo articoli ora è una schermata dedicata a tutto schermo, con scelta esplicita della categoria prima di aggiungere.'},
+  {v:'v2.4', note:'Nuova sezione Grafici: andamento chilometraggio, spesa manutenzione, numero interventi e voci diario per mese, filtrabili per periodo.'},{v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},{v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
   {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
