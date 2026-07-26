@@ -70,7 +70,7 @@
   .btn.small{padding:8px 12px; font-size:13.5px;}
   .btn.block{width:100%; padding:14px; font-size:15.5px; margin-top:4px;}
 
-  input[type=text], input[type=date], textarea{
+  input[type=text], input[type=date], textarea, select{
     width:100%; background:#f6f7f8; border:1px solid var(--border); color:var(--text);
     border-radius:12px; padding:12px; font-size:15px; margin-bottom:10px; font-family:inherit;
   }
@@ -90,6 +90,27 @@
   .fab-row{display:flex; gap:8px; margin-bottom:14px; margin-top:14px;}
   .status{font-size:12px; color:var(--muted); text-align:center; margin-top:24px;}
   .hidden{display:none !important;}
+
+  .cat-header{
+    display:flex; align-items:center; gap:8px; margin:20px 0 10px; padding:8px 14px;
+    border-radius:12px; font-weight:800; font-size:14px; letter-spacing:0.2px;
+  }
+  .cat-header:first-child{margin-top:4px;}
+  .cat-count{font-weight:600; font-size:12px; opacity:0.75;}
+
+  /* ── Sequenza di avvio: effetto "puzzle" sulle card della home ── */
+  .frag-holder{position:relative;}
+  .frag{position:absolute; opacity:0; overflow:hidden; will-change:transform,opacity;}
+  .frag>.item{position:absolute; margin:0; pointer-events:none;}
+  @keyframes fragIn{
+    0%{opacity:0; transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.5);}
+    60%{opacity:1;}
+    100%{opacity:1; transform:translate(0,0) rotate(0) scale(1);}
+  }
+  .frag.play{animation:fragIn 360ms cubic-bezier(.2,.8,.2,1) forwards; animation-delay:var(--delay,0ms);}
+  @media (prefers-reduced-motion: reduce){.frag{animation:none!important; opacity:1!important; transform:none!important;}}
+
+  .credits{position:fixed; bottom:10px; right:14px; font-size:11px; color:var(--muted); font-family:monospace; z-index:5; background:rgba(255,255,255,0.85); padding:4px 10px; border-radius:20px; backdrop-filter:blur(4px);}
 
   .login-screen{position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; z-index:100;}
   .login-card{background:var(--card); border-radius:20px; box-shadow:var(--shadow); padding:30px 24px; max-width:360px; width:100%;}
@@ -123,6 +144,7 @@
 </header>
 
 <main id="main"></main>
+<div class="credits">Il Mio Camper <span id="creditsVersione"></span></div>
 </div>
 
 <script>
@@ -226,11 +248,13 @@ const BASE_SECTIONS = [
   {id:'manut_da_fare', icon:'🔧', color:'#fde3cf', label:'Manutenzione da effettuare', sub:'Interventi da programmare', type:'manut_todo'},
   {id:'manut_fatta', icon:'✅', color:'#d7f5e3', label:'Manutenzione effettuata', sub:'Storico interventi eseguiti', type:'manut_done'},
   {id:'checklist', icon:'📋', color:'#dbeafe', label:'Checklist partenza', sub:'Lista di controllo pre-viaggio', type:'checklist'},
+  {id:'lista_spesa', icon:'🛒', color:'#fef3c7', label:'Lista della spesa', sub:'Organizzata per categoria', type:'lista_spesa'},
   {id:'impostazioni', icon:'⚙️', color:'#eceef1', label:'Impostazioni', sub:'Nome, salvataggio, importa/esporta', type:'settings'},
 ];
 const CUSTOM_COLORS = ['#fde0e0','#fdf1c7','#d7f0f5','#e3e6fd','#e4f5d7','#fbe0ef'];
 
 let state = { route: 'home', customSections: [] };
+let homeAnimatedOnce = false;
 
 const main = document.getElementById('main');
 const pageTitle = document.getElementById('pageTitle');
@@ -275,6 +299,18 @@ function renderHome(){
   html += '</div>';
   html += `<div class="status">Dati salvati automaticamente sul dispositivo</div>`;
   main.innerHTML = html;
+
+  const cvEl = document.getElementById('creditsVersione');
+  if(cvEl) cvEl.textContent = APP_VERSION;
+
+  if(!homeAnimatedOnce){
+    homeAnimatedOnce = true;
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{
+        try{ assemblaHome(); }catch(e){ console.error('assembly error:', e); }
+      });
+    });
+  }
 }
 function itemHtml(id, icon, color, label, sub){
   return `<button class="item" onclick="navigate('${id}')">
@@ -299,6 +335,7 @@ async function renderBySection(section){
   if(section.type==='manut_todo') return renderManutTodo(section);
   if(section.type==='manut_done') return renderManutDone(section);
   if(section.type==='checklist') return renderChecklist(section);
+  if(section.type==='lista_spesa') return renderListaSpesa(section);
   if(section.type==='settings') return renderSettings(section);
 }
 
@@ -481,6 +518,112 @@ async function resetChecklist(){
   renderChecklist(BASE_SECTIONS[3]);
 }
 
+// ---------- LISTA DELLA SPESA ----------
+const CATEGORIE_SUGGERITE = ['Alimentari','Frutta e verdura','Igiene','Pulizia','Bevande','Ricambi camper','Altro'];
+const CAT_COLORS = {
+  'Alimentari':'#fde3cf', 'Frutta e verdura':'#d7f5e3', 'Igiene':'#dbeafe', 'Pulizia':'#e8ddfb',
+  'Bevande':'#fde0e0', 'Ricambi camper':'#fdf1c7', 'Altro':'#eceef1'
+};
+function colorePerCategoria(cat){
+  if(CAT_COLORS[cat]) return CAT_COLORS[cat];
+  let hash = 0;
+  for(let i=0;i<cat.length;i++) hash = cat.charCodeAt(i) + ((hash<<5)-hash);
+  return CUSTOM_COLORS[Math.abs(hash) % CUSTOM_COLORS.length];
+}
+
+async function renderListaSpesa(section){
+  pageTitle.textContent = section.label;
+  watchKey('lista_spesa_items');
+  const items = await sGet('lista_spesa_items', []);
+  const categorieEsistenti = [...new Set(items.map(i=>i.category))];
+  const opzioni = [...new Set([...CATEGORIE_SUGGERITE, ...categorieEsistenti])];
+
+  let html = `
+    <div class="card">
+      <label>Articolo</label>
+      <input type="text" id="ls_text" placeholder="Es. Pane, detersivo piatti...">
+      <label>Categoria</label>
+      <select id="ls_cat_select" onchange="onCategoriaLSChange()">
+        ${opzioni.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+        <option value="__nuova__">➕ Nuova categoria...</option>
+      </select>
+      <input type="text" id="ls_cat_custom" placeholder="Nome della nuova categoria" class="hidden" style="margin-top:-2px;">
+      <button class="btn block" onclick="addListaSpesa()">Aggiungi</button>
+    </div>
+    <div class="fab-row">
+      <button class="btn secondary small" onclick="clearListaSpesaFatti()">🧹 Rimuovi articoli presi</button>
+    </div>`;
+
+  if(items.length===0){
+    html += `<div class="empty">Lista vuota. Aggiungi il primo articolo!</div>`;
+  } else {
+    const gruppi = {};
+    items.forEach(it=>{
+      const cat = it.category || 'Altro';
+      if(!gruppi[cat]) gruppi[cat] = [];
+      gruppi[cat].push(it);
+    });
+    Object.keys(gruppi).sort().forEach(cat=>{
+      const list = gruppi[cat];
+      const presi = list.filter(i=>i.done).length;
+      html += `<div class="cat-header" style="background:${colorePerCategoria(cat)}">
+        <span>${escapeHtml(cat)}</span>
+        <span class="cat-count">${presi}/${list.length}</span>
+      </div>`;
+      list.forEach(it=>{
+        html += `<div class="checkitem ${it.done?'done':''}">
+          <input type="checkbox" ${it.done?'checked':''} onchange="toggleListaSpesa('${it.id}')">
+          <span>${escapeHtml(it.text)}</span>
+          <button class="del" onclick="delListaSpesa('${it.id}')">✕</button>
+        </div>`;
+      });
+    });
+  }
+  main.innerHTML = html;
+}
+function onCategoriaLSChange(){
+  const sel = document.getElementById('ls_cat_select');
+  const custom = document.getElementById('ls_cat_custom');
+  if(sel.value === '__nuova__'){
+    custom.classList.remove('hidden');
+    custom.focus();
+  } else {
+    custom.classList.add('hidden');
+  }
+}
+async function addListaSpesa(){
+  const text = document.getElementById('ls_text').value.trim();
+  const sel = document.getElementById('ls_cat_select').value;
+  let category = sel;
+  if(sel === '__nuova__'){
+    category = document.getElementById('ls_cat_custom').value.trim() || 'Altro';
+  }
+  if(!text) return;
+  const items = await sGet('lista_spesa_items', []);
+  items.push({id:uid(), text, category, done:false});
+  await sSet('lista_spesa_items', items);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+async function toggleListaSpesa(id){
+  const items = await sGet('lista_spesa_items', []);
+  const it = items.find(i=>i.id===id);
+  if(it) it.done = !it.done;
+  await sSet('lista_spesa_items', items);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+async function delListaSpesa(id){
+  let items = await sGet('lista_spesa_items', []);
+  items = items.filter(i=>i.id!==id);
+  await sSet('lista_spesa_items', items);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+async function clearListaSpesaFatti(){
+  let items = await sGet('lista_spesa_items', []);
+  items = items.filter(i=>!i.done);
+  await sSet('lista_spesa_items', items);
+  renderListaSpesa(BASE_SECTIONS.find(s=>s.type==='lista_spesa'));
+}
+
 async function renderCustom(section){
   pageTitle.textContent = section.label;
   const key = 'custom_data_' + section.id;
@@ -540,7 +683,17 @@ async function deleteSection(sectionId){
 }
 
 // ---------- IMPOSTAZIONI ----------
-const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','custom_sections','user_name'];
+const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','lista_spesa_items','custom_sections','user_name'];
+
+const APP_VERSION = 'v1.5';
+const CHANGELOG = [
+  {v:'v1.5', note:'Sequenza di avvio animata in home, e questa cronologia versioni.'},
+  {v:'v1.4', note:'Aggiunta la Lista della spesa, organizzata per categorie colorate.'},
+  {v:'v1.3', note:'Aggiunto il login (email e password) per proteggere i dati condivisi.'},
+  {v:'v1.2', note:'Sincronizzazione in tempo reale tra dispositivi tramite Firebase.'},
+  {v:'v1.1', note:'Aggiunta la sezione Impostazioni con nome utente, esporta/importa backup.'},
+  {v:'v1.0', note:'Prima versione: Diario di viaggio, Manutenzione da fare/effettuata, Checklist partenza.'},
+];
 
 async function renderSettings(section){
   pageTitle.textContent = section.label;
@@ -570,6 +723,16 @@ async function renderSettings(section){
     <div class="card">
       <div class="title">Sincronizzazione condivisa</div>
       <div class="body">🟢 Attiva — i dati sono sincronizzati in tempo reale tra tutti i dispositivi collegati a questa app tramite Firebase.</div>
+    </div>
+
+    <div class="card">
+      <div class="title">Versione in uso: ${APP_VERSION}</div>
+      <div class="body" style="margin-bottom:4px;">Cronologia degli aggiornamenti:</div>
+      ${CHANGELOG.map(c=>`
+        <div style="display:flex; gap:10px; padding:8px 0; border-top:1px solid var(--border);">
+          <div style="font-weight:800; color:var(--accent); flex-shrink:0; min-width:44px;">${c.v}</div>
+          <div style="font-size:13.5px; color:#3a3d42;">${escapeHtml(c.note)}</div>
+        </div>`).join('')}
     </div>
   `;
   main.innerHTML = html;
@@ -627,6 +790,83 @@ async function importData(){
   }catch(e){
     alert('File non valido o corrotto. Import annullato.');
   }
+}
+
+// ── Sequenza di avvio: effetto "puzzle" sulle card della home (solo al primo avvio) ──
+function assemblaHome() {
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const listWrap = document.querySelector('#main .list');
+  if(!listWrap) return;
+  const items = Array.prototype.slice.call(listWrap.querySelectorAll(':scope > .item'));
+  if(!items.length) return;
+
+  const testRect = items[0].getBoundingClientRect();
+  if((testRect.width === 0 || testRect.height === 0) && !assemblaHome._retried){
+    assemblaHome._retried = true;
+    setTimeout(assemblaHome, 150);
+    return;
+  }
+
+  const GRID_COLS = 3, GRID_ROWS = 2;
+  const holders = items.map((item, itemIndex) => {
+    const rect = item.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    const cellW = w / GRID_COLS, cellH = h / GRID_ROWS;
+
+    const holder = document.createElement('div');
+    holder.className = 'frag-holder';
+    holder.style.height = h + 'px';
+
+    for(let r=0; r<GRID_ROWS; r++){
+      for(let c=0; c<GRID_COLS; c++){
+        const frag = document.createElement('div');
+        frag.className = 'frag';
+        frag.style.width = cellW + 'px';
+        frag.style.height = cellH + 'px';
+        frag.style.left = (c * cellW) + 'px';
+        frag.style.top = (r * cellH) + 'px';
+
+        const clone = item.cloneNode(true);
+        clone.style.left = (-c * cellW) + 'px';
+        clone.style.top = (-r * cellH) + 'px';
+        clone.style.width = w + 'px';
+        clone.style.height = h + 'px';
+        frag.appendChild(clone);
+
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 30 + Math.random() * 50;
+        const dx = Math.cos(angle) * dist;
+        const dy = Math.sin(angle) * dist;
+        const rot = (Math.random() - 0.5) * 30;
+        const cellDelay = (r * GRID_COLS + c) * 10;
+
+        frag.style.setProperty('--dx', dx + 'px');
+        frag.style.setProperty('--dy', dy + 'px');
+        frag.style.setProperty('--rot', rot + 'deg');
+        frag.style.setProperty('--delay', (itemIndex * 70 + cellDelay) + 'ms');
+
+        holder.appendChild(frag);
+      }
+    }
+    return holder;
+  });
+
+  items.forEach((item, i) => listWrap.replaceChild(holders[i], item));
+
+  const INITIAL_PAUSE = 350;
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      setTimeout(()=>{
+        document.querySelectorAll('#main .frag').forEach(f => f.classList.add('play'));
+        const maxDelay = (items.length - 1) * 70 + (GRID_ROWS*GRID_COLS - 1) * 10 + 360 + 60;
+        setTimeout(()=>{
+          holders.forEach((holder, i) => {
+            if(holder.parentNode) listWrap.replaceChild(items[i], holder);
+          });
+        }, maxDelay);
+      }, INITIAL_PAUSE);
+    });
+  });
 }
 
 function escapeHtml(str){
