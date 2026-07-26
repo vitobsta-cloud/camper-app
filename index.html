@@ -25,21 +25,21 @@
     display:flex; align-items:center; gap:8px;
   }
   header h1{font-size:19px; margin:0; font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  main{padding:0 16px 90px; max-width:640px; margin:0 auto;}
+  main{padding:0 16px 40px; max-width:640px; margin:0 auto;}
 
   .bottom-nav{
-    display:none; position:fixed; left:0; right:0; bottom:0; z-index:60;
-    justify-content:center; gap:44px; background:var(--card);
-    padding:10px 20px calc(10px + env(safe-area-inset-bottom));
-    box-shadow:0 -2px 12px rgba(0,0,0,0.1);
+    display:none; position:fixed; bottom:20px; left:0; right:0; z-index:999;
+    justify-content:center; gap:10px; pointer-events:none;
   }
   .bottom-nav.show{display:flex;}
   .bottom-nav-btn{
-    width:52px; height:52px; border-radius:50%; border:none; background:#f1f2f4;
-    color:var(--text); font-size:22px; display:flex; align-items:center; justify-content:center;
-    cursor:pointer; box-shadow:var(--shadow);
+    pointer-events:auto;
+    background:#1a1a18; color:#f5f4f0; border:none; border-radius:50px;
+    padding:13px 22px; font-size:14.5px; font-weight:600; font-family:inherit; cursor:pointer;
+    display:flex; align-items:center; gap:7px; box-shadow:0 4px 20px rgba(0,0,0,0.35);
+    white-space:nowrap; transition:background .15s;
   }
-  .bottom-nav-btn:active{transform:scale(.92); background:#e6e8eb;}
+  .bottom-nav-btn:active{background:#333;}
 
   .list{display:flex; flex-direction:column; gap:12px;}
   .item{
@@ -104,9 +104,9 @@
   .checkitem.done .label{text-decoration:line-through; color:var(--muted);}
   .del{background:none; border:none; color:#c4c8cd; font-size:19px; cursor:pointer; padding:2px 6px; flex-shrink:0;}
 
-  .fixed-action{position:fixed; left:0; right:0; bottom:74px; padding:12px 16px; background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:55;}
+  .fixed-action{position:fixed; left:0; right:0; bottom:0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); background:linear-gradient(to top, var(--bg) 65%, transparent); z-index:50;}
   .fixed-action .inner{max-width:640px; margin:0 auto;}
-  .list-spacer{height:150px;}
+  .list-spacer{height:76px;}
 
   #catalogoList{margin-top:4px;}
   .catalogo-row{
@@ -245,8 +245,8 @@
 <div class="credits">Il Mio Camper <span id="creditsVersione"></span></div>
 
 <div id="bottomNav" class="bottom-nav">
-  <button class="bottom-nav-btn" id="backBtn">←</button>
-  <button class="bottom-nav-btn" id="homeBtn">🏠</button>
+  <button class="bottom-nav-btn" id="backBtn">← Indietro</button>
+  <button class="bottom-nav-btn" id="homeBtn">🏠 Home</button>
 </div>
 </div>
 
@@ -1396,6 +1396,9 @@ function passaPeriodo(dateStr, periodo){
   if(periodo === 'anno'){
     return d.getFullYear() === now.getFullYear();
   }
+  if(periodo.startsWith('anno:')){
+    return d.getFullYear() === parseInt(periodo.slice(5), 10);
+  }
   return true;
 }
 const MESI_BREVI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
@@ -1469,6 +1472,15 @@ async function renderGrafici(section){
   const doneFiltrati = done.filter(t => passaPeriodo(t.date, periodo));
   const diarioFiltrati = diario.filter(t => passaPeriodo(t.date, periodo));
 
+  // Anni presenti nei dati (per poter scegliere un anno specifico, non solo quello corrente)
+  const anniTrovati = new Set();
+  [...done, ...diario].forEach(t=>{
+    if(!t.date) return;
+    const d = new Date(t.date+'T00:00:00');
+    if(!isNaN(d)) anniTrovati.add(d.getFullYear());
+  });
+  const anniOrdinati = [...anniTrovati].sort((a,b)=>b-a);
+
   let html = `
     <div class="card">
       <label>Periodo da visualizzare</label>
@@ -1477,7 +1489,9 @@ async function renderGrafici(section){
         <option value="3mesi" ${periodo==='3mesi'?'selected':''}>Ultimi 3 mesi</option>
         <option value="anno" ${periodo==='anno'?'selected':''}>Anno corrente</option>
         <option value="tutto" ${periodo==='tutto'?'selected':''}>Tutto</option>
+        ${anniOrdinati.map(y=>`<option value="anno:${y}" ${periodo==='anno:'+y?'selected':''}>Anno ${y}</option>`).join('')}
       </select>
+      ${anniOrdinati.length===0 ? `<div class="body" style="margin-top:8px; font-size:12.5px;">Gli anni passati compariranno qui appena avrai dati con date in quegli anni.</div>` : ''}
     </div>
 
     <div class="card">
@@ -1512,10 +1526,10 @@ async function renderGrafici(section){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v2.5';
+const APP_VERSION = 'v2.7';
 const CHANGELOG = [
-  {v:'v2.5', note:'Indietro/Home spostati in una barra fissa in basso (stile Android), sempre visibile. Il catalogo articoli ora è una schermata dedicata a tutto schermo, con scelta esplicita della categoria prima di aggiungere.'},
-  {v:'v2.4', note:'Nuova sezione Grafici: andamento chilometraggio, spesa manutenzione, numero interventi e voci diario per mese, filtrabili per periodo.'},{v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},{v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v2.7', note:'Indietro/Home ora sono pillole flottanti compatte che si sovrappongono al contenuto (come nell\'app di riferimento), invece di una barra piena che occupava spazio dedicato.'},
+  {v:'v2.6', note:'Grafici: ora è possibile scegliere un anno specifico passato (non solo "anno corrente"), tra quelli effettivamente presenti nei tuoi dati.'},{v:'v2.5', note:'Indietro/Home spostati in una barra fissa in basso (stile Android), sempre visibile. Il catalogo articoli ora è una schermata dedicata a tutto schermo, con scelta esplicita della categoria prima di aggiungere.'},{v:'v2.4', note:'Nuova sezione Grafici: andamento chilometraggio, spesa manutenzione, numero interventi e voci diario per mese, filtrabili per periodo.'},{v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},{v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
   {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
