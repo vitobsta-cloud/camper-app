@@ -52,6 +52,8 @@
     border:1px solid transparent;
   }
   .item:active{transform:scale(.98);}
+  .sortable-chosen{box-shadow:0 10px 24px rgba(0,0,0,0.18); transform:scale(1.02);}
+  .sortable-ghost{opacity:0.35;}
   .item .badge{
     width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center;
     font-size:24px; flex-shrink:0;
@@ -205,6 +207,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 </head>
 <body>
 
@@ -549,15 +552,18 @@ async function render(){
 function renderHome(){
   pageTitle.textContent = '🚐 Il Mio Camper';
   watchKey('custom_sections');
-  let html = '<div class="list">';
-  BASE_SECTIONS.forEach(s=>{
-    html += itemHtml(s.id, s.icon, s.color, s.label, s.sub);
-  });
+  let items = BASE_SECTIONS.map(s=>({id:s.id, icon:s.icon, color:s.color, label:s.label, sub:s.sub}));
   state.customSections.forEach((s,i)=>{
-    html += itemHtml(s.id, s.icon||'📦', CUSTOM_COLORS[i%CUSTOM_COLORS.length], s.label, 'Sezione personalizzata');
+    items.push({id:s.id, icon:s.icon||'📦', color:CUSTOM_COLORS[i%CUSTOM_COLORS.length], label:s.label, sub:'Sezione personalizzata'});
+  });
+  items = ordinaHomeItems(items);
+
+  let html = '<div class="list">';
+  items.forEach(it=>{
+    html += itemHtml(it.id, it.icon, it.color, it.label, it.sub);
   });
   html += '</div>';
-  html += `<div class="status">Dati salvati automaticamente sul dispositivo</div>`;
+  html += `<div class="status">Tieni premuto un tasto per riordinarlo · Dati salvati automaticamente sul dispositivo</div>`;
   main.innerHTML = html;
 
   const cvEl = document.getElementById('creditsVersione');
@@ -571,13 +577,53 @@ function renderHome(){
       });
     });
   }
+  initHomeSortable();
 }
 function itemHtml(id, icon, color, label, sub){
-  return `<button class="item" onclick="navigate('${id}')">
+  return `<button class="item" data-id="${id}" onclick="navigate('${id}')">
     <span class="badge" style="background:${color}">${icon}</span>
     <span class="txt"><div class="t">${escapeHtml(label)}</div><div class="s">${escapeHtml(sub||'')}</div></span>
     <span class="chev">›</span>
   </button>`;
+}
+
+// ---------- Ordine personalizzato della home (tieni premuto e trascina) ----------
+function getHomeOrder(){
+  try{
+    const raw = localStorage.getItem('camper_home_order');
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+function saveHomeOrder(order){
+  try{ localStorage.setItem('camper_home_order', JSON.stringify(order)); }catch(e){}
+}
+function ordinaHomeItems(items){
+  const order = getHomeOrder();
+  if(order.length === 0) return items;
+  const posMap = {};
+  order.forEach((id,i)=>posMap[id]=i);
+  return items.slice().sort((a,b)=>{
+    const pa = posMap.hasOwnProperty(a.id) ? posMap[a.id] : Infinity;
+    const pb = posMap.hasOwnProperty(b.id) ? posMap[b.id] : Infinity;
+    return pa - pb;
+  });
+}
+let homeSortable = null;
+function initHomeSortable(){
+  const listEl = document.querySelector('#main .list');
+  if(!listEl || typeof Sortable === 'undefined') return;
+  if(homeSortable){ try{ homeSortable.destroy(); }catch(e){} homeSortable = null; }
+  homeSortable = new Sortable(listEl, {
+    animation: 150,
+    delay: 400,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 6,
+    onStart: function(){ if(navigator.vibrate) navigator.vibrate(30); },
+    onEnd: function(){
+      const ids = Array.from(listEl.children).map(el => el.dataset.id).filter(Boolean);
+      saveHomeOrder(ids);
+    }
+  });
 }
 
 async function addCustomSection(){
@@ -659,10 +705,14 @@ async function delDiario(id){
   renderDiario(BASE_SECTIONS[0]);
 }
 
+let manutTodoExpandedId = null;
+let manutTodoSearchValue = '';
+
 async function renderManutTodo(section){
   pageTitle.textContent = section.label;
   watchKey('manut_todo');
   const todo = await sGet('manut_todo', []);
+  window._manutTodoCache = todo;
   let html = `
     <div class="card">
       <label>Intervento da fare</label>
@@ -684,29 +734,63 @@ async function renderManutTodo(section){
       <label>Data prevista (opzionale)</label>
       <input type="date" id="m_date">
       <button class="btn block" onclick="addManutTodo()">Aggiungi</button>
-    </div>`;
-  if(todo.length===0){
-    html += `<div class="empty">Nessuna manutenzione in sospeso 🎉</div>`;
-  } else {
-    todo.forEach(t=>{
+    </div>
+    <div class="card">
+      <label>Cerca</label>
+      <input type="text" id="m_search" placeholder="Cerca per intervento o fornitore..." value="${escapeHtml(manutTodoSearchValue)}" oninput="onManutTodoSearchInput(this.value)">
+    </div>
+    <div id="manutTodoList"></div>
+  `;
+  main.innerHTML = html;
+  renderManutTodoList();
+}
+function onManutTodoSearchInput(value){
+  manutTodoSearchValue = value;
+  renderManutTodoList();
+}
+function renderManutTodoList(){
+  const todo = window._manutTodoCache || [];
+  const q = manutTodoSearchValue.trim().toLowerCase();
+  const filtrati = q
+    ? todo.filter(t => (t.task||'').toLowerCase().includes(q) || (t.fornitore||'').toLowerCase().includes(q) || (t.note||'').toLowerCase().includes(q))
+    : todo;
+  const listEl = document.getElementById('manutTodoList');
+  if(!listEl) return;
+  if(filtrati.length===0){
+    listEl.innerHTML = `<div class="empty">${todo.length===0 ? 'Nessuna manutenzione in sospeso 🎉' : 'Nessun risultato per questa ricerca.'}</div>`;
+    return;
+  }
+  listEl.innerHTML = filtrati.map(t=>{
+    if(manutTodoExpandedId === t.id){
       const dettagli = [
         t.km ? `📏 ${t.km} km` : '',
         t.euro ? `💶 €${t.euro}` : '',
         t.fornitore ? `🔧 ${escapeHtml(t.fornitore)}` : ''
       ].filter(Boolean).join(' · ');
-      html += `<div class="card">
+      return `<div class="card">
+        <div class="row" style="justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+          <div class="title" style="margin:0;">${escapeHtml(t.task)}</div>
+          <button class="del" onclick="toggleManutTodoDettaglio('${t.id}')">✕</button>
+        </div>
         ${t.data ? `<div class="meta">📅 ${fmtDate(t.data)}</div>` : ''}
-        <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
         ${dettagli ? `<div class="body">${dettagli}</div>` : ''}
-        <div class="row">
+        <div class="row" style="margin-top:10px;">
           <button class="btn ok small" onclick="completeManut('${t.id}')">✅ Fatto</button>
           <button class="btn danger" onclick="delManutTodo('${t.id}')">Elimina</button>
         </div>
       </div>`;
-    });
-  }
-  main.innerHTML = html;
+    }
+    return `<div class="card" style="cursor:pointer;" onclick="toggleManutTodoDettaglio('${t.id}')">
+      ${t.data ? `<div class="meta">📅 ${fmtDate(t.data)}</div>` : ''}
+      <div class="title">${escapeHtml(t.task)}</div>
+      ${t.fornitore ? `<div class="body">🔧 ${escapeHtml(t.fornitore)}</div>` : ''}
+    </div>`;
+  }).join('') + `<div class="list-spacer"></div>`;
+}
+function toggleManutTodoDettaglio(id){
+  manutTodoExpandedId = (manutTodoExpandedId === id) ? null : id;
+  renderManutTodoList();
 }
 async function addManutTodo(){
   const task = document.getElementById('m_task').value.trim();
@@ -745,10 +829,14 @@ async function completeManut(id){
   renderManutTodo(BASE_SECTIONS[1]);
 }
 
+let manutDoneExpandedId = null;
+let manutDoneSearchValue = '';
+
 async function renderManutDone(section){
   pageTitle.textContent = section.label;
   watchKey('manut_done');
   const done = await sGet('manut_done', []);
+  window._manutDoneCache = done;
   let html = `
     <div class="card">
       <label>Intervento già effettuato</label>
@@ -771,15 +859,41 @@ async function renderManutDone(section){
       <input type="date" id="md_date" value="${todayStr()}">
       <div class="body" style="margin:-2px 0 10px; font-size:12.5px;">Utile per registrare interventi vecchi fatti prima di usare l'app.</div>
       <button class="btn block" onclick="addManutDone()">Aggiungi</button>
-    </div>`;
-  if(done.length===0){
-    html += `<div class="empty">Nessuna manutenzione registrata ancora.</div>`;
-  } else {
-    done.slice().reverse().forEach(t=>{
-      html += `<div class="card">
+    </div>
+    <div class="card">
+      <label>Cerca</label>
+      <input type="text" id="md_search" placeholder="Cerca per intervento o fornitore..." value="${escapeHtml(manutDoneSearchValue)}" oninput="onManutDoneSearchInput(this.value)">
+    </div>
+    <div id="manutDoneList"></div>
+  `;
+  main.innerHTML = html;
+  renderManutDoneList();
+}
+function onManutDoneSearchInput(value){
+  manutDoneSearchValue = value;
+  renderManutDoneList();
+}
+function renderManutDoneList(){
+  const done = window._manutDoneCache || [];
+  const q = manutDoneSearchValue.trim().toLowerCase();
+  const filtrati = q
+    ? done.filter(t => (t.task||'').toLowerCase().includes(q) || (t.fornitore||'').toLowerCase().includes(q))
+    : done;
+  const listEl = document.getElementById('manutDoneList');
+  if(!listEl) return;
+  if(filtrati.length===0){
+    listEl.innerHTML = `<div class="empty">${done.length===0 ? 'Nessuna manutenzione registrata ancora.' : 'Nessun risultato per questa ricerca.'}</div>`;
+    return;
+  }
+  listEl.innerHTML = filtrati.slice().reverse().map(t=>{
+    if(manutDoneExpandedId === t.id){
+      return `<div class="card">
+        <div class="row" style="justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+          <div class="title" style="margin:0;">${escapeHtml(t.task)}</div>
+          <button class="del" onclick="toggleManutDoneDettaglio('${t.id}')">✕</button>
+        </div>
         <label style="margin-bottom:4px;">Data</label>
         <input type="date" value="${t.date||''}" onchange="updateManutDoneField('${t.id}','date',this.value)" style="margin-bottom:10px;">
-        <div class="title">${escapeHtml(t.task)}</div>
         ${t.note ? `<div class="body">${escapeHtml(t.note)}</div>` : ''}
         <div class="row" style="gap:10px; margin-top:10px;">
           <div style="flex:1;">
@@ -795,9 +909,17 @@ async function renderManutDone(section){
         <input type="text" value="${escapeHtml(t.fornitore||'')}" placeholder="Es. Officina Rossi" onchange="updateManutDoneField('${t.id}','fornitore', this.value)">
         <div class="row" style="margin-top:10px;"><button class="btn danger" onclick="delManutDone('${t.id}')">Elimina</button></div>
       </div>`;
-    });
-  }
-  main.innerHTML = html;
+    }
+    return `<div class="card" style="cursor:pointer;" onclick="toggleManutDoneDettaglio('${t.id}')">
+      <div class="meta">📅 ${fmtDate(t.date)}</div>
+      <div class="title">${escapeHtml(t.task)}</div>
+      ${t.fornitore ? `<div class="body">🔧 ${escapeHtml(t.fornitore)}</div>` : ''}
+    </div>`;
+  }).join('') + `<div class="list-spacer"></div>`;
+}
+function toggleManutDoneDettaglio(id){
+  manutDoneExpandedId = (manutDoneExpandedId === id) ? null : id;
+  renderManutDoneList();
 }
 async function addManutDone(){
   const task = document.getElementById('md_task').value.trim();
@@ -1550,10 +1672,10 @@ async function renderGrafici(section){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','custom_sections'];
 
-const APP_VERSION = 'v3.0';
+const APP_VERSION = 'v3.2';
 const CHANGELOG = [
-  {v:'v3.0', note:'"Aggiungi sezione" spostato dalla home a Impostazioni, con un modulo vero al posto della finestra del browser (poco leggibile). Home più pulita.'},
-  {v:'v2.9', note:'Indietro, Home e il pulsante d\'azione della pagina (Chiudi spesa, Verifica checklist, ecc.) uniti in un\'unica barra in basso: Indietro e Home più piccoli a sinistra, l\'azione principale più grande a destra.'},{v:'v2.8', note:'Corretta la sovrapposizione tra le pillole Indietro/Home e i pulsanti azione in basso. Catalogo articoli: ora si possono selezionare più articoli e aggiungerli tutti insieme con un solo tap su "Aggiungi".'},{v:'v2.7', note:'Indietro/Home ora sono pillole flottanti compatte che si sovrappongono al contenuto (come nell\'app di riferimento), invece di una barra piena che occupava spazio dedicato.'},{v:'v2.6', note:'Grafici: ora è possibile scegliere un anno specifico passato (non solo "anno corrente"), tra quelli effettivamente presenti nei tuoi dati.'},{v:'v2.5', note:'Indietro/Home spostati in una barra fissa in basso (stile Android), sempre visibile. Il catalogo articoli ora è una schermata dedicata a tutto schermo, con scelta esplicita della categoria prima di aggiungere.'},{v:'v2.4', note:'Nuova sezione Grafici: andamento chilometraggio, spesa manutenzione, numero interventi e voci diario per mese, filtrabili per periodo.'},{v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},{v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
+  {v:'v3.2', note:'I tasti della home sono ora riordinabili: tieni premuto un tasto e trascinalo su o giù. L\'ordine scelto resta salvato su questo dispositivo.'},
+  {v:'v3.1', note:'Manutenzione da effettuare/effettuata: aggiunta la ricerca in cima, le voci sono ora righe compatte (data, titolo, fornitore) che si aprono a scheda intera con un tap.'},{v:'v3.0', note:'"Aggiungi sezione" spostato dalla home a Impostazioni, con un modulo vero al posto della finestra del browser (poco leggibile). Home più pulita.'},{v:'v2.9', note:'Indietro, Home e il pulsante d\'azione della pagina (Chiudi spesa, Verifica checklist, ecc.) uniti in un\'unica barra in basso: Indietro e Home più piccoli a sinistra, l\'azione principale più grande a destra.'},{v:'v2.8', note:'Corretta la sovrapposizione tra le pillole Indietro/Home e i pulsanti azione in basso. Catalogo articoli: ora si possono selezionare più articoli e aggiungerli tutti insieme con un solo tap su "Aggiungi".'},{v:'v2.7', note:'Indietro/Home ora sono pillole flottanti compatte che si sovrappongono al contenuto (come nell\'app di riferimento), invece di una barra piena che occupava spazio dedicato.'},{v:'v2.6', note:'Grafici: ora è possibile scegliere un anno specifico passato (non solo "anno corrente"), tra quelli effettivamente presenti nei tuoi dati.'},{v:'v2.5', note:'Indietro/Home spostati in una barra fissa in basso (stile Android), sempre visibile. Il catalogo articoli ora è una schermata dedicata a tutto schermo, con scelta esplicita della categoria prima di aggiungere.'},{v:'v2.4', note:'Nuova sezione Grafici: andamento chilometraggio, spesa manutenzione, numero interventi e voci diario per mese, filtrabili per periodo.'},{v:'v2.3', note:'Manutenzione: aggiunti i campi Km, Costo € e Fornitore, sia da effettuare che effettuata (questi ultimi modificabili in ogni momento).'},{v:'v2.2', note:'Lista della spesa: catalogo di oltre 200 articoli predefiniti da aggiungere con un tap (con ricerca), e ordinamento per stato o alfabetico.'},{v:'v2.1', note:'Pulsanti Indietro e Home nell\'header ridisegnati come icone circolari, stile Android, invece di bottoni con testo.'},{v:'v2.0', note:'Il nome utente ora è impostato per dispositivo (non più condiviso e sovrascritto). Notifica all\'avvio: "Nome ha aggiunto: ..." per le voci inserite dall\'altro da quando non guardavi l\'app.'},
   {v:'v1.9', note:'Categorie checklist più leggibili (layout a righe intere) con un unico pulsante Salva per tutte. La checklist ricorda l\'ultima categoria usata. Header con pulsanti Indietro e Home sempre visibili.'},{v:'v1.8', note:'Le categorie della checklist ora sono modificabili (nome e priorità) con pulsante Salva, non solo eliminabili.'},
   {v:'v1.7', note:'Data modificabile/inseribile in Manutenzione (anche interventi vecchi). Pulsante "Verifica checklist" fisso, con animazione di conferma o avviso se mancano voci.'},
   {v:'v1.6', note:'Popup di conferma personalizzati, categorie/priorità nella checklist, tap sull\'intera riga per spuntare, storico acquisti e suggerimenti "acquistati spesso" nella lista spesa, corretta l\'animazione di avvio.'},
