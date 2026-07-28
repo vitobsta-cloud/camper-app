@@ -1,4 +1,4 @@
-const CACHE_NAME = 'camper-app-v1';
+const CACHE_NAME = 'camper-app-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -19,6 +19,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+  // Non intercettare i blob URL: sono usati per i download (es. backup).
+  if(req.url.startsWith('blob:')) return;
   // Intercetta solo richieste GET dello stesso dominio (pagina, JS, CSS, icone).
   // Tutto il resto (chiamate POST di Firebase, richieste di estensioni del browser,
   // domini esterni) viene lasciato passare intatto: intercettarle causava errori
