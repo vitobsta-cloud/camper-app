@@ -2822,7 +2822,7 @@ async function delSpeseViaggioCategoria(id){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','lista_spesa_categorie','catalogo_articoli','catalogo_categoria_overrides','viaggi','spese_viaggio','spese_viaggio_categorie','custom_sections'];
 
-const APP_VERSION = 'v7.1';
+const APP_VERSION = 'v7.2';
 const CHANGELOG = [
   {v:'v6.9', note:'Esporta backup: semplificato al massimo con un link diretto data-URI, il metodo più compatibile con tutti i browser Android.'},{v:'v6.7', note:'Esporta backup: la condivisione nativa poteva fallire silenziosamente (il browser \'dimentica\' il tocco dell\'utente durante le operazioni intermedie). Ora se fallisce apre il backup in una nuova scheda del browser, sempre visibile, da cui scaricarlo o condividerlo; aggiunte anche istruzioni specifiche per Android.'},{v:'v6.6', note:'Esporta backup: ora prova prima la condivisione nativa del telefono (più affidabile del download silenzioso, spesso invisibile su mobile), con il download classico come riserva e un messaggio di conferma sempre visibile. Il backup include già tutte le categorie personalizzate (checklist, lista spesa, spese viaggio, catalogo).'},{v:'v6.5', note:'Grafici: aggiunto un grafico a torta "Spese viaggio per tipo di pagamento" che mostra la ripartizione tra Contanti, Bancomat, Buoni carburante e Buoni spesa (per i pagamenti misti, considera correttamente sia la parte pagata coi buoni che il resto).'},{v:'v6.4', note:'Spese viaggio: aggiunto "🛍️ Buoni spesa" come pagamento. Selezionandolo per una nuova spesa, dopo aver inserito l\'importo compare una videata dedicata che chiede come è stato pagato il resto (contanti/bancomat) e il relativo importo. Totali, elenco e grafici ora considerano correttamente anche questo pagamento misto.'},{v:'v6.3', note:'Corretto lo stile dei campi numerici (Importo €, Costo previsto, Km): prima usavano lo stile grezzo del browser con le freccette su/giù, ora sono uguali agli altri campi di testo in tutta l\'app.'},{v:'v6.2', note:'Lista della spesa: il catalogo articoli ora mostra sempre tutti i risultati, senza più il limite di 80 e il messaggio "affina la ricerca". Spese viaggio: aggiunto "🎫 Buoni carburante" come terzo tipo di pagamento, oltre a Contanti e Bancomat.'},{v:'v6.1', note:'Aggiunto il pulsante "Elimina viaggio" anche nella schermata del diario (prima c\'era solo in Spese viaggio). Eliminando un viaggio ora vengono rimosse sia le sue spese che le sue tappe di diario.'},{v:'v6.0', note:'Diario di viaggio riorganizzato: ora si parte definendo il viaggio (stessa lista condivisa con Spese viaggio) e dentro si aggiungono le tappe, modificabili come le altre sezioni. Spese viaggio: aggiunto il tipo di pagamento (💵 Contanti / 💳 Bancomat) a ogni spesa.'},{v:'v5.0', note:'Nuova sezione "Spese viaggio" in home: crea i tuoi viaggi, aggiungi le spese di ciascuno con categoria (Carburante, Cibo, Pedaggi, Sosta/Campeggio, Attività, Altro — personalizzabili da Impostazioni) e vedi il totale speso. Aggiunti anche in Grafici: confronto spesa totale tra viaggi e andamento mensile.'},{v:'v4.2', note:'Checklist: se aggiungi o rinomini una voce con un testo già esistente (anche in un\'altra categoria), ora appare un avviso che te lo segnala prima di procedere.'},{v:'v4.1', note:'Impostazioni: le card relative a Checklist e Lista della spesa hanno ora uno sfondo pastello (stesso colore della sezione in home), per distinguerle più facilmente a colpo d\'occhio.'},{v:'v4.0', note:'Aggiunta la categoria "Farmacia" alla lista spesa. Il catalogo articoli ora è gestibile del tutto da Impostazioni → Gestisci catalogo articoli: puoi aggiungere articoli nuovi, rinominarli, spostarli di categoria o eliminarli.'},{v:'v3.9', note:'Lista della spesa: l\'icona della categoria ora compare anche accanto al cestino su ogni articolo, non solo nell\'intestazione del gruppo — più leggibile con liste lunghe.'},{v:'v3.8', note:'Catalogo articoli: ogni articolo ha ora una categoria assegnata in automatico (modificabile da Impostazioni → Categorie articoli catalogo), quindi selezionandone di tipi diversi finiscono da soli nella categoria giusta. Le categorie della lista spesa hanno ora un\'icona, modificabile da Impostazioni.'},{v:'v3.7', note:'Checklist partenza: ora è possibile modificare testo e categoria di una voce esistente toccando la matita ✏️, invece di doverla eliminare e ricreare.'},
   {v:'v3.6', note:'Aggiunto anche in Checklist l\'ordinamento "Per stato" o "A-Z" (già presente in Lista della spesa), dentro ogni categoria.'},
@@ -3022,19 +3022,6 @@ function scaricaBackup(){
   if(!json) return;
   const filename = 'camper-app-backup-' + todayStr() + '.json';
   const blob = new Blob([json], {type:'application/json'});
-  const file = new File([blob], filename, {type:'application/json'});
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    navigator.share({files:[file], title:'Backup Il Mio Camper'}).then(()=>{
-      document.getElementById('backupConferma').classList.remove('hidden');
-    }).catch(e=>{
-      if(e.name==='AbortError') return;
-      backupDownloadDiretto(blob, filename);
-    });
-    return;
-  }
-  backupDownloadDiretto(blob, filename);
-}
-function backupDownloadDiretto(blob, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -3042,7 +3029,7 @@ function backupDownloadDiretto(blob, filename){
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  setTimeout(()=>URL.revokeObjectURL(url), 10000);
   document.getElementById('backupConferma').classList.remove('hidden');
 }
 
