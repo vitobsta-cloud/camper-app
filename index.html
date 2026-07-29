@@ -309,7 +309,7 @@ function aggiornaBannerOffline(){
   if(!banner) return;
   banner.classList.toggle('hidden', navigator.onLine);
 }
-window.addEventListener('online', aggiornaBannerOffline);
+window.addEventListener('online', ()=>{ aggiornaBannerOffline(); if(typeof prefetchAllData==='function') prefetchAllData(); });
 window.addEventListener('offline', aggiornaBannerOffline);
 
 // ---------- Autenticazione ----------
@@ -353,7 +353,19 @@ async function sGet(key, fallback){
       return data && data.value !== undefined ? data.value : fallback;
     }
     return fallback;
-  }catch(e){ console.error('firestore get failed', key, e); return fallback; }
+  }catch(e){
+    // Se il tentativo normale fallisce (tipicamente offline senza una lettura recente),
+    // proviamo esplicitamente la cache locale prima di arrenderci col fallback vuoto.
+    try{
+      const snapCache = await db.collection(COLLECTION).doc(key).get({source:'cache'});
+      if(snapCache.exists){
+        const data = snapCache.data();
+        return data && data.value !== undefined ? data.value : fallback;
+      }
+    }catch(e2){ /* niente in cache locale */ }
+    console.error('firestore get failed', key, e);
+    return fallback;
+  }
 }
 async function sSet(key, value){
   try{
@@ -603,6 +615,22 @@ async function init(){
   state.customSections = await sGet('custom_sections', []);
   navigate('home');
   checkNewActivity();
+  prefetchAllData(); // in background: scarica tutto per averlo pronto anche offline
+}
+
+// Scarica in background TUTTI i dati dell'app (non solo la sezione aperta),
+// così quando la connessione manca (es. dentro un supermercato) ogni sezione
+// è già disponibile in locale, non solo quelle già visitate.
+async function prefetchAllData(){
+  if(!navigator.onLine) return;
+  try{
+    const keys = DATA_KEYS.slice();
+    const customSections = await sGet('custom_sections', []);
+    customSections.forEach(s => keys.push('custom_data_' + s.id));
+    await Promise.all(keys.map(k => db.collection(COLLECTION).doc(k).get().catch(()=>{})));
+  }catch(e){
+    console.warn('Prefetch dati offline non completato', e);
+  }
 }
 
 function navigate(route){
@@ -2850,8 +2878,9 @@ async function delSpeseViaggioCategoria(id){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','lista_spesa_categorie','catalogo_articoli','catalogo_categoria_overrides','viaggi','spese_viaggio','spese_viaggio_categorie','custom_sections'];
 
-const APP_VERSION = 'v7.7';
+const APP_VERSION = 'v7.8';
 const CHANGELOG = [
+  {v:'v7.8', note:'Offline reale: appena c\'è connessione, l\'app ora scarica in background TUTTI i dati (non solo la sezione aperta) e li tiene pronti in locale — così anche una sezione mai visitata prima, come la lista della spesa dentro un supermercato senza campo, si apre comunque con gli ultimi dati salvati.'},
   {v:'v7.7', note:'Corretto un bug serio introdotto per sbaglio nella v7.4: il codice che puliva la cache vecchia girava ad OGNI apertura dell\'app, cancellando anche i dati offline appena salvati — rendendo impossibile aprire l\'app senza connessione. Ora la registrazione del service worker è semplice e non tocca mai la cache: gli aggiornamenti avvengono in modo naturale, la modalità offline funziona davvero.'},
   {v:'v7.6', note:'Attivata la persistenza offline di Firestore: l\'app (lista spesa compresa) ora funziona anche senza campo, usando i dati già salvati sul telefono, e si sincronizza da sola quando torna la connessione. Aggiunto un banner "Sei offline" sempre visibile quando manca il segnale, e un pulsante "🔄 Aggiorna adesso" in Impostazioni per forzare la sincronizzazione manualmente.'},
   {v:'v6.9', note:'Esporta backup: semplificato al massimo con un link diretto data-URI, il metodo più compatibile con tutti i browser Android.'},{v:'v6.7', note:'Esporta backup: la condivisione nativa poteva fallire silenziosamente (il browser \'dimentica\' il tocco dell\'utente durante le operazioni intermedie). Ora se fallisce apre il backup in una nuova scheda del browser, sempre visibile, da cui scaricarlo o condividerlo; aggiunte anche istruzioni specifiche per Android.'},{v:'v6.6', note:'Esporta backup: ora prova prima la condivisione nativa del telefono (più affidabile del download silenzioso, spesso invisibile su mobile), con il download classico come riserva e un messaggio di conferma sempre visibile. Il backup include già tutte le categorie personalizzate (checklist, lista spesa, spese viaggio, catalogo).'},{v:'v6.5', note:'Grafici: aggiunto un grafico a torta "Spese viaggio per tipo di pagamento" che mostra la ripartizione tra Contanti, Bancomat, Buoni carburante e Buoni spesa (per i pagamenti misti, considera correttamente sia la parte pagata coi buoni che il resto).'},{v:'v6.4', note:'Spese viaggio: aggiunto "🛍️ Buoni spesa" come pagamento. Selezionandolo per una nuova spesa, dopo aver inserito l\'importo compare una videata dedicata che chiede come è stato pagato il resto (contanti/bancomat) e il relativo importo. Totali, elenco e grafici ora considerano correttamente anche questo pagamento misto.'},{v:'v6.3', note:'Corretto lo stile dei campi numerici (Importo €, Costo previsto, Km): prima usavano lo stile grezzo del browser con le freccette su/giù, ora sono uguali agli altri campi di testo in tutta l\'app.'},{v:'v6.2', note:'Lista della spesa: il catalogo articoli ora mostra sempre tutti i risultati, senza più il limite di 80 e il messaggio "affina la ricerca". Spese viaggio: aggiunto "🎫 Buoni carburante" come terzo tipo di pagamento, oltre a Contanti e Bancomat.'},{v:'v6.1', note:'Aggiunto il pulsante "Elimina viaggio" anche nella schermata del diario (prima c\'era solo in Spese viaggio). Eliminando un viaggio ora vengono rimosse sia le sue spese che le sue tappe di diario.'},{v:'v6.0', note:'Diario di viaggio riorganizzato: ora si parte definendo il viaggio (stessa lista condivisa con Spese viaggio) e dentro si aggiungono le tappe, modificabili come le altre sezioni. Spese viaggio: aggiunto il tipo di pagamento (💵 Contanti / 💳 Bancomat) a ogni spesa.'},{v:'v5.0', note:'Nuova sezione "Spese viaggio" in home: crea i tuoi viaggi, aggiungi le spese di ciascuno con categoria (Carburante, Cibo, Pedaggi, Sosta/Campeggio, Attività, Altro — personalizzabili da Impostazioni) e vedi il totale speso. Aggiunti anche in Grafici: confronto spesa totale tra viaggi e andamento mensile.'},{v:'v4.2', note:'Checklist: se aggiungi o rinomini una voce con un testo già esistente (anche in un\'altra categoria), ora appare un avviso che te lo segnala prima di procedere.'},{v:'v4.1', note:'Impostazioni: le card relative a Checklist e Lista della spesa hanno ora uno sfondo pastello (stesso colore della sezione in home), per distinguerle più facilmente a colpo d\'occhio.'},{v:'v4.0', note:'Aggiunta la categoria "Farmacia" alla lista spesa. Il catalogo articoli ora è gestibile del tutto da Impostazioni → Gestisci catalogo articoli: puoi aggiungere articoli nuovi, rinominarli, spostarli di categoria o eliminarli.'},{v:'v3.9', note:'Lista della spesa: l\'icona della categoria ora compare anche accanto al cestino su ogni articolo, non solo nell\'intestazione del gruppo — più leggibile con liste lunghe.'},{v:'v3.8', note:'Catalogo articoli: ogni articolo ha ora una categoria assegnata in automatico (modificabile da Impostazioni → Categorie articoli catalogo), quindi selezionandone di tipi diversi finiscono da soli nella categoria giusta. Le categorie della lista spesa hanno ora un\'icona, modificabile da Impostazioni.'},{v:'v3.7', note:'Checklist partenza: ora è possibile modificare testo e categoria di una voce esistente toccando la matita ✏️, invece di doverla eliminare e ricreare.'},
