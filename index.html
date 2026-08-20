@@ -2381,7 +2381,7 @@ function disegnaBarrePerViaggio(canvasId, wrapId, viaggi, speseFiltrate, emptyMs
   graficiChartInstances.push(chart);
 }
 
-function disegnaTortaPagamenti(canvasId, wrapId, speseFiltrate, emptyMsg){
+function calcolaTotaliPagamento(speseFiltrate){
   const totali = {};
   speseFiltrate.forEach(s=>{
     const p1 = s.pagamento || 'contanti';
@@ -2390,6 +2390,9 @@ function disegnaTortaPagamenti(canvasId, wrapId, speseFiltrate, emptyMsg){
       totali[s.pagamentoResto] = (totali[s.pagamentoResto]||0) + Number(s.importoResto);
     }
   });
+  return totali;
+}
+function disegnaTortaPagamenti(canvasId, wrapId, totali, emptyMsg){
   const chiavi = Object.keys(totali).filter(k=>totali[k]>0);
   if(chiavi.length===0){
     document.getElementById(wrapId).innerHTML = `<div class="empty" style="padding:20px 4px;">${emptyMsg}</div>`;
@@ -2410,14 +2413,22 @@ function disegnaTortaPagamenti(canvasId, wrapId, speseFiltrate, emptyMsg){
   });
   graficiChartInstances.push(chart);
 }
+function disegnaBarrePagamenti(canvasId, wrapId, totali, emptyMsg){
+  const coloriPagamento = { contanti:'#5cb85c', bancomat:'#4a9de8', buoni:'#e8a83c', buoni_spesa:'#e0507a' };
+  const chiavi = Object.keys(totali).filter(k=>totali[k]>0).sort((a,b)=>totali[b]-totali[a]);
+  disegnaBarreOrizzontali(canvasId, wrapId, chiavi.map(k=>labelPagamento(k)), chiavi.map(k=>totali[k]), chiavi.map(k=>coloriPagamento[k]||'#ccc'), emptyMsg);
+}
 
 const PALETTE_CATEGORIE = ['#e0507a','#4a9de8','#e8a83c','#5cb85c','#8b6fd6','#e8834a','#3cbcb0','#c45cc4'];
-function disegnaTortaCategorie(canvasId, wrapId, speseFiltrate, categorie, emptyMsg){
+function calcolaTotaliCategorie(speseFiltrate){
   const totali = {};
   speseFiltrate.forEach(s=>{
     const cat = s.categoria || 'Altro';
     totali[cat] = (totali[cat]||0) + importoTotaleSpesa(s);
   });
+  return totali;
+}
+function disegnaTortaCategorie(canvasId, wrapId, totali, categorie, emptyMsg){
   const chiavi = Object.keys(totali).filter(k=>totali[k]>0);
   if(chiavi.length===0){
     document.getElementById(wrapId).innerHTML = `<div class="empty" style="padding:20px 4px;">${emptyMsg}</div>`;
@@ -2436,6 +2447,36 @@ function disegnaTortaCategorie(canvasId, wrapId, speseFiltrate, categorie, empty
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{ position:'bottom', labels:{ boxWidth:14, font:{size:12} } } }
+    }
+  });
+  graficiChartInstances.push(chart);
+}
+function disegnaBarreCategorie(canvasId, wrapId, totali, categorie, emptyMsg){
+  const chiaviOrdinate = Object.keys(totali).filter(k=>totali[k]>0).sort((a,b)=>totali[b]-totali[a]);
+  const coloriPerChiave = {};
+  Object.keys(totali).forEach((k,i)=>{ coloriPerChiave[k] = PALETTE_CATEGORIE[i % PALETTE_CATEGORIE.length]; });
+  disegnaBarreOrizzontali(
+    canvasId, wrapId,
+    chiaviOrdinate.map(k=>`${iconaPerCategoria(k, categorie)} ${k}`),
+    chiaviOrdinate.map(k=>totali[k]),
+    chiaviOrdinate.map(k=>coloriPerChiave[k]),
+    emptyMsg
+  );
+}
+// Grafico a barre orizzontali generico, riusato per viaggi/pagamenti/categorie
+function disegnaBarreOrizzontali(canvasId, wrapId, labels, valori, colori, emptyMsg){
+  if(labels.length===0){
+    document.getElementById(wrapId).innerHTML = `<div class="empty" style="padding:20px 4px;">${emptyMsg}</div>`;
+    return;
+  }
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const chart = new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'Spesa €', data: valori, backgroundColor: colori, borderRadius:6 }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ x:{ beginAtZero:true } }
     }
   });
   graficiChartInstances.push(chart);
@@ -2532,8 +2573,18 @@ async function renderGrafici(section){
     </div>
 
     <div class="card">
+      <div class="title">📊 Spese per tipo di pagamento — a barre${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
+      <div id="chartPagamentiBarreWrap" class="chart-wrap"><canvas id="chartPagamentiBarre"></canvas></div>
+    </div>
+
+    <div class="card">
       <div class="title">🍰 Spese per categoria${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
       <div id="chartCategorieViaggioWrap" class="chart-wrap"><canvas id="chartCategorieViaggio"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="title">📊 Spese per categoria — a barre${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
+      <div id="chartCategorieBarreWrap" class="chart-wrap"><canvas id="chartCategorieBarre"></canvas></div>
     </div>
   `;
   main.innerHTML = html;
@@ -2546,8 +2597,14 @@ async function renderGrafici(section){
   disegnaBarrePerViaggio('chartSpesaViaggiConfronto', 'chartSpesaViaggiConfrontoWrap', viaggi, speseFiltrate, 'Nessuna spesa di viaggio registrata in questo periodo.');
   const speseViaggioMensili = speseFiltrateViaggio.map(s => ({ data: s.data, importo: importoTotaleSpesa(s) }));
   disegnaBarre('chartSpesaViaggiMese', 'chartSpesaViaggiMeseWrap', speseViaggioMensili, 'data', 'importo', 'Spesa €', '#e0507a', 'Nessuna spesa di viaggio registrata in questo periodo.');
-  disegnaTortaPagamenti('chartPagamentiViaggio', 'chartPagamentiViaggioWrap', speseFiltrateViaggio, 'Nessuna spesa di viaggio registrata in questo periodo.');
-  disegnaTortaCategorie('chartCategorieViaggio', 'chartCategorieViaggioWrap', speseFiltrateViaggio, categorieSpese, 'Nessuna spesa di viaggio registrata in questo periodo.');
+
+  const totaliPagamento = calcolaTotaliPagamento(speseFiltrateViaggio);
+  disegnaTortaPagamenti('chartPagamentiViaggio', 'chartPagamentiViaggioWrap', totaliPagamento, 'Nessuna spesa di viaggio registrata in questo periodo.');
+  disegnaBarrePagamenti('chartPagamentiBarre', 'chartPagamentiBarreWrap', totaliPagamento, 'Nessuna spesa di viaggio registrata in questo periodo.');
+
+  const totaliCategorie = calcolaTotaliCategorie(speseFiltrateViaggio);
+  disegnaTortaCategorie('chartCategorieViaggio', 'chartCategorieViaggioWrap', totaliCategorie, categorieSpese, 'Nessuna spesa di viaggio registrata in questo periodo.');
+  disegnaBarreCategorie('chartCategorieBarre', 'chartCategorieBarreWrap', totaliCategorie, categorieSpese, 'Nessuna spesa di viaggio registrata in questo periodo.');
 }
 
 // ---------- SPESE VIAGGIO ----------
@@ -2937,8 +2994,9 @@ async function delSpeseViaggioCategoria(id){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','lista_spesa_categorie','catalogo_articoli','catalogo_categoria_overrides','viaggi','spese_viaggio','spese_viaggio_categorie','custom_sections'];
 
-const APP_VERSION = 'v7.10';
+const APP_VERSION = 'v7.11';
 const CHANGELOG = [
+  {v:'v7.11', note:'Grafici: aggiunta la versione a barre orizzontali sia per "Spese per tipo di pagamento" sia per "Spese per categoria", accanto ai grafici a torta già presenti — entrambe seguono lo stesso filtro periodo/viaggio.'},
   {v:'v7.10', note:'Corretta la causa reale del problema "vedo ancora la versione vecchia": il service worker era impostato per servire sempre la pagina dalla cache, anche quando c\'era connessione, aggiornandosi solo se cambiava sw.js. Ora la pagina principale usa una strategia "prima la rete" (scarica sempre l\'ultima versione se online, usa la cache solo se sei offline) — gli aggiornamenti dell\'app saranno visibili subito, senza bisogno di toccare sw.js ad ogni release.'},
   {v:'v7.9', note:'Grafici: aggiunto un filtro "Filtra per viaggio" e un nuovo grafico a torta "Spese per categoria" (Carburante, Cibo, Pedaggi...). Selezionando un viaggio specifico, anche i grafici "Spesa viaggio per mese" e "per tipo di pagamento" si aggiornano per mostrare solo quel viaggio.'},
   {v:'v7.8', note:'Offline reale: appena c\'è connessione, l\'app ora scarica in background TUTTI i dati (non solo la sezione aperta) e li tiene pronti in locale — così anche una sezione mai visitata prima, come la lista della spesa dentro un supermercato senza campo, si apre comunque con gli ultimi dati salvati.'},
