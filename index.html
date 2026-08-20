@@ -2268,6 +2268,13 @@ function setGraficiPeriodo(v){
   try{ localStorage.setItem('camper_grafici_periodo', v); }catch(e){}
   renderGrafici(BASE_SECTIONS.find(s=>s.type==='grafici'));
 }
+function getGraficiViaggio(){
+  try{ return localStorage.getItem('camper_grafici_viaggio') || ''; }catch(e){ return ''; }
+}
+function setGraficiViaggio(v){
+  try{ localStorage.setItem('camper_grafici_viaggio', v); }catch(e){}
+  renderGrafici(BASE_SECTIONS.find(s=>s.type==='grafici'));
+}
 function passaPeriodo(dateStr, periodo){
   if(!dateStr) return false;
   if(periodo === 'tutto') return true;
@@ -2404,17 +2411,54 @@ function disegnaTortaPagamenti(canvasId, wrapId, speseFiltrate, emptyMsg){
   graficiChartInstances.push(chart);
 }
 
+const PALETTE_CATEGORIE = ['#e0507a','#4a9de8','#e8a83c','#5cb85c','#8b6fd6','#e8834a','#3cbcb0','#c45cc4'];
+function disegnaTortaCategorie(canvasId, wrapId, speseFiltrate, categorie, emptyMsg){
+  const totali = {};
+  speseFiltrate.forEach(s=>{
+    const cat = s.categoria || 'Altro';
+    totali[cat] = (totali[cat]||0) + importoTotaleSpesa(s);
+  });
+  const chiavi = Object.keys(totali).filter(k=>totali[k]>0);
+  if(chiavi.length===0){
+    document.getElementById(wrapId).innerHTML = `<div class="empty" style="padding:20px 4px;">${emptyMsg}</div>`;
+    return;
+  }
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const chart = new Chart(ctx, {
+    type:'doughnut',
+    data:{
+      labels: chiavi.map(k=>{
+        const icona = iconaPerCategoria(k, categorie);
+        return `${icona} ${k}`;
+      }),
+      datasets:[{ data: chiavi.map(k=>totali[k]), backgroundColor: chiavi.map((k,i)=>PALETTE_CATEGORIE[i % PALETTE_CATEGORIE.length]) }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:14, font:{size:12} } } }
+    }
+  });
+  graficiChartInstances.push(chart);
+}
+
 async function renderGrafici(section){
   pageTitle.textContent = section.label;
   const periodo = getGraficiPeriodo();
+  const viaggioSelezionato = getGraficiViaggio();
   const done = await sGet('manut_done', []);
   const diario = await sGet('diario_entries', []);
   const spese = await sGet('spese_viaggio', []);
   const viaggi = await sGet('viaggi', []);
+  const categorieSpese = await ensureDefaultSpeseViaggioCategorie();
 
   const doneFiltrati = done.filter(t => passaPeriodo(t.date, periodo));
   const diarioFiltrati = diario.filter(t => passaPeriodo(t.date, periodo));
   const speseFiltrate = spese.filter(t => passaPeriodo(t.data, periodo));
+  // Sottoinsieme filtrato anche per il viaggio scelto (usato dai grafici che analizzano un singolo viaggio)
+  const speseFiltrateViaggio = viaggioSelezionato
+    ? speseFiltrate.filter(s => s.viaggioId === viaggioSelezionato)
+    : speseFiltrate;
+  const nomeViaggioSelezionato = viaggioSelezionato ? (viaggi.find(v=>v.id===viaggioSelezionato)?.nome || '') : '';
 
   // Anni presenti nei dati (per poter scegliere un anno specifico, non solo quello corrente)
   const anniTrovati = new Set();
@@ -2429,6 +2473,7 @@ async function renderGrafici(section){
     if(!isNaN(d)) anniTrovati.add(d.getFullYear());
   });
   const anniOrdinati = [...anniTrovati].sort((a,b)=>b-a);
+  const viaggiOrdinati = viaggi.slice().sort((a,b)=> (b.dataInizio||'').localeCompare(a.dataInizio||''));
 
   let html = `
     <div class="card">
@@ -2468,14 +2513,27 @@ async function renderGrafici(section){
       <div id="chartSpesaViaggiConfrontoWrap" class="chart-wrap"><canvas id="chartSpesaViaggiConfronto"></canvas></div>
     </div>
 
+    <div class="card" style="background:#ffe0ee;">
+      <label>Filtra spese viaggio per: (grafici qui sotto)</label>
+      <select id="grafici_viaggio" onchange="setGraficiViaggio(this.value)">
+        <option value="">Tutti i viaggi</option>
+        ${viaggiOrdinati.map(v=>`<option value="${v.id}" ${viaggioSelezionato===v.id?'selected':''}>${escapeHtml(v.nome)}</option>`).join('')}
+      </select>
+    </div>
+
     <div class="card">
-      <div class="title">💶 Spesa viaggio per mese</div>
+      <div class="title">💶 Spesa viaggio per mese${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
       <div id="chartSpesaViaggiMeseWrap" class="chart-wrap"><canvas id="chartSpesaViaggiMese"></canvas></div>
     </div>
 
     <div class="card">
-      <div class="title">🥧 Spese viaggio per tipo di pagamento</div>
+      <div class="title">🥧 Spese viaggio per tipo di pagamento${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
       <div id="chartPagamentiViaggioWrap" class="chart-wrap"><canvas id="chartPagamentiViaggio"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="title">🍰 Spese per categoria${nomeViaggioSelezionato ? ' — ' + escapeHtml(nomeViaggioSelezionato) : ''}</div>
+      <div id="chartCategorieViaggioWrap" class="chart-wrap"><canvas id="chartCategorieViaggio"></canvas></div>
     </div>
   `;
   main.innerHTML = html;
@@ -2486,9 +2544,10 @@ async function renderGrafici(section){
   disegnaBarre('chartInterventi', 'chartInterventiWrap', doneFiltrati, 'date', null, 'Interventi', '#4a9de8', 'Nessun intervento registrato in questo periodo.');
   disegnaBarre('chartViaggi', 'chartViaggiWrap', diarioFiltrati, 'date', null, 'Voci diario', '#8b6fd6', 'Nessuna voce di diario in questo periodo.');
   disegnaBarrePerViaggio('chartSpesaViaggiConfronto', 'chartSpesaViaggiConfrontoWrap', viaggi, speseFiltrate, 'Nessuna spesa di viaggio registrata in questo periodo.');
-  const speseViaggioMensili = speseFiltrate.map(s => ({ data: s.data, importo: importoTotaleSpesa(s) }));
+  const speseViaggioMensili = speseFiltrateViaggio.map(s => ({ data: s.data, importo: importoTotaleSpesa(s) }));
   disegnaBarre('chartSpesaViaggiMese', 'chartSpesaViaggiMeseWrap', speseViaggioMensili, 'data', 'importo', 'Spesa €', '#e0507a', 'Nessuna spesa di viaggio registrata in questo periodo.');
-  disegnaTortaPagamenti('chartPagamentiViaggio', 'chartPagamentiViaggioWrap', speseFiltrate, 'Nessuna spesa di viaggio registrata in questo periodo.');
+  disegnaTortaPagamenti('chartPagamentiViaggio', 'chartPagamentiViaggioWrap', speseFiltrateViaggio, 'Nessuna spesa di viaggio registrata in questo periodo.');
+  disegnaTortaCategorie('chartCategorieViaggio', 'chartCategorieViaggioWrap', speseFiltrateViaggio, categorieSpese, 'Nessuna spesa di viaggio registrata in questo periodo.');
 }
 
 // ---------- SPESE VIAGGIO ----------
@@ -2878,8 +2937,9 @@ async function delSpeseViaggioCategoria(id){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','lista_spesa_categorie','catalogo_articoli','catalogo_categoria_overrides','viaggi','spese_viaggio','spese_viaggio_categorie','custom_sections'];
 
-const APP_VERSION = 'v7.8';
+const APP_VERSION = 'v7.9';
 const CHANGELOG = [
+  {v:'v7.9', note:'Grafici: aggiunto un filtro "Filtra per viaggio" e un nuovo grafico a torta "Spese per categoria" (Carburante, Cibo, Pedaggi...). Selezionando un viaggio specifico, anche i grafici "Spesa viaggio per mese" e "per tipo di pagamento" si aggiornano per mostrare solo quel viaggio.'},
   {v:'v7.8', note:'Offline reale: appena c\'è connessione, l\'app ora scarica in background TUTTI i dati (non solo la sezione aperta) e li tiene pronti in locale — così anche una sezione mai visitata prima, come la lista della spesa dentro un supermercato senza campo, si apre comunque con gli ultimi dati salvati.'},
   {v:'v7.7', note:'Corretto un bug serio introdotto per sbaglio nella v7.4: il codice che puliva la cache vecchia girava ad OGNI apertura dell\'app, cancellando anche i dati offline appena salvati — rendendo impossibile aprire l\'app senza connessione. Ora la registrazione del service worker è semplice e non tocca mai la cache: gli aggiornamenti avvengono in modo naturale, la modalità offline funziona davvero.'},
   {v:'v7.6', note:'Attivata la persistenza offline di Firestore: l\'app (lista spesa compresa) ora funziona anche senza campo, usando i dati già salvati sul telefono, e si sincronizza da sola quando torna la connessione. Aggiunto un banner "Sei offline" sempre visibile quando manca il segnale, e un pulsante "🔄 Aggiorna adesso" in Impostazioni per forzare la sincronizzazione manualmente.'},
