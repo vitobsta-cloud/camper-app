@@ -2937,8 +2937,9 @@ async function delSpeseViaggioCategoria(id){
 // ---------- IMPOSTAZIONI ----------
 const DATA_KEYS = ['diario_entries','manut_todo','manut_done','checklist_items','checklist_categories','lista_spesa_items','lista_spesa_storico','lista_spesa_categorie','catalogo_articoli','catalogo_categoria_overrides','viaggi','spese_viaggio','spese_viaggio_categorie','custom_sections'];
 
-const APP_VERSION = 'v7.9';
+const APP_VERSION = 'v7.10';
 const CHANGELOG = [
+  {v:'v7.10', note:'Corretta la causa reale del problema "vedo ancora la versione vecchia": il service worker era impostato per servire sempre la pagina dalla cache, anche quando c\'era connessione, aggiornandosi solo se cambiava sw.js. Ora la pagina principale usa una strategia "prima la rete" (scarica sempre l\'ultima versione se online, usa la cache solo se sei offline) — gli aggiornamenti dell\'app saranno visibili subito, senza bisogno di toccare sw.js ad ogni release.'},
   {v:'v7.9', note:'Grafici: aggiunto un filtro "Filtra per viaggio" e un nuovo grafico a torta "Spese per categoria" (Carburante, Cibo, Pedaggi...). Selezionando un viaggio specifico, anche i grafici "Spesa viaggio per mese" e "per tipo di pagamento" si aggiornano per mostrare solo quel viaggio.'},
   {v:'v7.8', note:'Offline reale: appena c\'è connessione, l\'app ora scarica in background TUTTI i dati (non solo la sezione aperta) e li tiene pronti in locale — così anche una sezione mai visitata prima, come la lista della spesa dentro un supermercato senza campo, si apre comunque con gli ultimi dati salvati.'},
   {v:'v7.7', note:'Corretto un bug serio introdotto per sbaglio nella v7.4: il codice che puliva la cache vecchia girava ad OGNI apertura dell\'app, cancellando anche i dati offline appena salvati — rendendo impossibile aprire l\'app senza connessione. Ora la registrazione del service worker è semplice e non tocca mai la cache: gli aggiornamenti avvengono in modo naturale, la modalità offline funziona davvero.'},

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'camper-app-v4';
+const CACHE_NAME = 'camper-app-v5';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
@@ -18,24 +18,35 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
+  // La pagina principale (index.html): NETWORK-FIRST.
+  // Se c'è connessione, scarica sempre la versione più recente e aggiorna la cache.
+  // Se manca la connessione, usa quella salvata in cache. Così un aggiornamento del solo
+  // index.html è visibile subito, senza dover cambiare CACHE_NAME ad ogni release.
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    event.respondWith(
+      fetch(req).then(res => {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
+        return res;
+      }).catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Tutto il resto (icone, manifest, librerie): CACHE-FIRST.
+  // Più veloce e funziona offline; cambia raramente quindi non serve scaricarlo ogni volta.
   event.respondWith(
-    caches.match(event.request).then(response => {
-      if (response) return response;
-
-      return fetch(event.request).then(response => {
-        if (!response || response.status !== 200 || response.type === 'error') {
-          return response;
-        }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
-        });
-        return response;
-      }).catch(() => {
-        return caches.match(event.request);
-      });
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+      return fetch(req).then(res => {
+        if (!res || res.status !== 200 || res.type === 'error') return res;
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
+        return res;
+      }).catch(() => cached);
     })
   );
 });
